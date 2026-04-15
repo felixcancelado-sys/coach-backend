@@ -1,86 +1,82 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import WebSocket from "ws";
 
 const GEMINI_KEY = process.env.GEMINI_KEY;
 
-// 🚀 HTTP server obligatorio en Railway
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-console.log("🚀 Coach backend iniciado");
+console.log("🚀 Backend coach iniciado (NO SDK)");
 
-const ai = new GoogleGenAI({ apiKey: GEMINI_KEY });
-
-wss.on("connection", async (client) => {
+wss.on("connection", (client) => {
   console.log("🟢 Frontend conectado");
 
-  // 🧠 Conexión LIVE a Gemini (SDK oficial)
-  const session = await ai.live.connect({
-    model: "gemini-2.5-flash-native-audio",
-    config: {
-      responseModalities: ["AUDIO"],
-      systemInstruction: {
-        parts: [
-          {
-            text: `
+  // 🧠 Conexión directa a Gemini Live (PROTOCOLO CORRECTO)
+  const gemini = new WebSocket(
+    `wss://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-native-audio-latest:bidiGenerateContent?key=${GEMINI_KEY}`
+  );
+
+  gemini.on("open", () => {
+    console.log("🧠 Gemini conectado");
+
+    gemini.send(
+      JSON.stringify({
+        setup: {
+          systemInstruction: {
+            parts: [
+              {
+                text: `
 Eres un coach de inglés en tiempo real.
-
-Reglas:
-- Corrige pronunciación
-- Di "repeat after me"
-- Sé breve
-- Interactivo y natural
-            `,
+Corriges pronunciación.
+Sé breve y directo.
+Siempre pide repetir.
+                `,
+              },
+            ],
           },
-        ],
-      },
-    },
-
-    callbacks: {
-      onopen: () => {
-        console.log("🧠 Gemini conectado");
-      },
-
-      onmessage: (msg) => {
-        // 🔊 Gemini → frontend
-        client.send(JSON.stringify(msg));
-      },
-
-      onerror: (err) => {
-        console.error("❌ Gemini error:", err);
-      },
-
-      onclose: () => {
-        console.log("🔴 Gemini cerrado");
-        client.close();
-      },
-    },
+        },
+      })
+    );
   });
 
-  // 🎤 frontend → Gemini
+  // 🎤 FRONTEND → GEMINI
   client.on("message", (msg) => {
     try {
-      session.sendRealtimeInput({
-        media: {
-          data: msg.toString("base64"),
-          mimeType: "audio/pcm",
-        },
-      });
-    } catch (e) {
-      console.error("❌ error enviando audio:", e);
+      if (gemini.readyState === WebSocket.OPEN) {
+        gemini.send(msg);
+      }
+    } catch (err) {
+      console.error("❌ error sending to Gemini:", err);
     }
+  });
+
+  // 🔊 GEMINI → FRONTEND
+  gemini.on("message", (msg) => {
+    try {
+      client.send(msg);
+    } catch (err) {
+      console.error("❌ error sending to client:", err);
+    }
+  });
+
+  gemini.on("error", (err) => {
+    console.error("❌ Gemini error:", err.message);
+  });
+
+  gemini.on("close", () => {
+    console.log("🔴 Gemini cerrado");
+    client.close();
   });
 
   client.on("close", () => {
     console.log("🔴 Frontend desconectado");
-    session.close?.();
+    gemini.close();
   });
 });
 
-// 🚀 PORT Railway
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Listening on port ${PORT}`);
+  console.log(`🚀 Listening on ${PORT}`);
 });
