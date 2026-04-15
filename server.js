@@ -12,13 +12,13 @@ console.log("🚀 Backend coach iniciado (NO SDK)");
 wss.on("connection", (client) => {
   console.log("🟢 Frontend conectado");
 
-  // 🧠 Conexión directa a Gemini Live (PROTOCOLO CORRECTO)
   const gemini = new WebSocket(
     `wss://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-native-audio-latest:bidiGenerateContent?key=${GEMINI_KEY}`
   );
 
+  // 🧠 LOGS CLAVE (AQUÍ ES DONDE VAN)
   gemini.on("open", () => {
-    console.log("🧠 Gemini conectado");
+    console.log("🧠 GEMINI OPEN OK");
 
     gemini.send(
       JSON.stringify({
@@ -40,6 +40,14 @@ Siempre pide repetir.
     );
   });
 
+  gemini.on("error", (e) => {
+    console.log("❌ GEMINI ERROR:", e.message);
+  });
+
+  gemini.on("close", () => {
+    console.log("🔴 GEMINI CLOSED");
+  });
+
   // 🎤 FRONTEND → GEMINI
   client.on("message", (msg) => {
     try {
@@ -47,7 +55,7 @@ Siempre pide repetir.
         gemini.send(msg);
       }
     } catch (err) {
-      console.error("❌ error sending to Gemini:", err);
+      console.log("❌ ERROR sending audio:", err.message);
     }
   });
 
@@ -56,21 +64,12 @@ Siempre pide repetir.
     try {
       client.send(msg);
     } catch (err) {
-      console.error("❌ error sending to client:", err);
+      console.log("❌ ERROR sending to client:", err.message);
     }
   });
 
-  gemini.on("error", (err) => {
-    console.error("❌ Gemini error:", err.message);
-  });
-
-  gemini.on("close", () => {
-    console.log("🔴 Gemini cerrado");
-    client.close();
-  });
-
   client.on("close", () => {
-    console.log("🔴 Frontend desconectado");
+    console.log("🔴 Frontend disconnected");
     gemini.close();
   });
 });
