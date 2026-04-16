@@ -19,7 +19,8 @@ wss.on("connection", async (ws) => {
 
   try {
     session = await ai.live.connect({
-      model: "gemini-2.0-flash-exp",
+      // 🔥 AQUÍ ESTÁ LA MAGIA: El nombre oficial y definitivo
+      model: "gemini-2.0-flash", 
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
@@ -44,7 +45,6 @@ wss.on("connection", async (ws) => {
           console.error("🔴 ERROR DE GEMINI:", err);
         },
         onclose: (e) => {
-          // AHORA VEREMOS EXACTAMENTE EL CÓDIGO DEL CORTE
           console.log(`🔴 STREAM CERRADO POR GEMINI. Código: ${e.code}, Razón: ${e.reason || "Sin especificar"}`);
         }
       }
@@ -52,14 +52,14 @@ wss.on("connection", async (ws) => {
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
 
-    // 🔥 EL TEST DEFINITIVO: Obligamos a Aoede a hablar apenas se conecta
+    // Trampa de prueba: Aoede saludará automáticamente al segundo de conectar
     setTimeout(async () => {
       if (session && typeof session.send === 'function') {
         console.log("🗣️ Forzando saludo inicial de Aoede...");
         try {
           await session.send({
             clientContent: {
-              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español y dime que me escuchas." }] }],
+              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español y dime que estás lista." }] }],
               turnComplete: true
             }
           });
@@ -67,14 +67,14 @@ wss.on("connection", async (ws) => {
           console.error("⚠️ Error forzando el saludo:", err.message);
         }
       }
-    }, 1000); // Esperamos 1 segundo y le mandamos el texto
+    }, 1000);
 
+    // Bucle para procesar tu voz
     ws.on("message", async (data) => {
       if (!session) return;
       try {
         const msg = JSON.parse(data.toString());
 
-        // Evitamos enviar arrays vacíos que hacen que Gemini corte la llamada
         if (msg.type === "audio" && Array.isArray(msg.audio) && msg.audio.length > 0) {
           const pcm16 = new Int16Array(msg.audio.length);
           for (let i = 0; i < msg.audio.length; i++) {
@@ -96,7 +96,7 @@ wss.on("connection", async (ws) => {
           }
         }
       } catch (err) {
-        // Silenciamos los errores de parseo del front para no saturar el log
+        // Silenciamos los errores de parseo
       }
     });
 
