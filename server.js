@@ -1,12 +1,13 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import * as GoogleAI from "@google/genai"; // Importamos todo el paquete
 
 const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
+// Usamos el constructor completo para evitar errores de referencia
+const genAI = new GoogleAI.GoogleGenAI(process.env.GEMINI_API_KEY);
 
 server.listen(PORT, () => {
   console.log("🚀 BACKEND READY ON PORT", PORT);
@@ -15,58 +16,45 @@ server.listen(PORT, () => {
 wss.on("connection", async (ws) => {
   console.log("🟢 CLIENT CONNECTED");
 
-  let session;
-
   try {
-    const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    // PARCHE: Si genAI no tiene el método, lo buscamos en el prototipo
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-    // Eliminamos el "as any" que causaba el error
-    session = await model.live.connect({
+    const session = await model.live.connect({
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres una coach de inglés. Hablas español. Corriges pronunciación con amabilidad. Siempre vuelves al ejercicio." }]
+          parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Hablas español y ayudas con la pronunciación." }]
         }
       }
     });
 
-    // Receptor de Gemini
+    console.log("🧠 MOTOR KORE DESPIERTO");
+
+    // Receptor de Gemini -> Front
     (async () => {
       try {
         for await (const msg of session.receive()) {
-          const parts = msg.serverContent?.modelTurn?.parts;
-          if (!parts) continue;
-
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              ws.send(JSON.stringify({
-                type: "audio",
-                audio: part.inlineData.data,
-              }));
-            }
+          const data = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+          if (data) {
+            ws.send(JSON.stringify({ type: "audio", audio: data }));
           }
         }
-      } catch (e) {
-        console.log("🔴 Stream Gemini cerrado");
-      }
+      } catch (e) { console.log("🔴 Stream cerrado"); }
     })();
 
-    // Receptor del Frontend
+    // Receptor Front -> Gemini
     ws.on("message", (data) => {
-      if (!session) return;
       try {
         const msg = JSON.parse(data.toString());
-
-        if (msg.type === "audio") {
-          const audio = msg.audio;
-          if (!Array.isArray(audio)) return;
-
-          const pcm16 = new Int16Array(audio.length);
-          for (let i = 0; i < audio.length; i++) {
-            const v = Math.max(-1, Math.min(1, audio[i]));
+        if (msg.type === "audio" && Array.isArray(msg.audio)) {
+          // Convertimos el audio a PCM16
+          const pcm16 = new Int16Array(msg.audio.length);
+          for (let i = 0; i < msg.audio.length; i++) {
+            const v = Math.max(-1, Math.min(1, msg.audio[i]));
             pcm16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
           }
-
+          
           session.sendRealtimeInput([{
             media: {
               mimeType: "audio/pcm;rate=16000",
@@ -74,13 +62,7 @@ wss.on("connection", async (ws) => {
             }
           }]);
         }
-
-        if (msg.type === "text") {
-          session.sendRealtimeInput([{ text: msg.text }]);
-        }
-      } catch (err) {
-        console.error("⚠️ Error:", err.message);
-      }
+      } catch (err) { console.error("⚠️ Error:", err.message); }
     });
 
     ws.on("close", () => {
@@ -89,6 +71,6 @@ wss.on("connection", async (ws) => {
     });
 
   } catch (err) {
-    console.error("❌ SESSION ERROR:", err.message);
+    console.error("❌ ERROR CRÍTICO:", err.message);
   }
 });
