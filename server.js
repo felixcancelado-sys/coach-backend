@@ -8,26 +8,62 @@ const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 Backend VOZ PRO iniciado");
+  console.log("🚀 COACH INTELIGENTE iniciado");
 });
 
-// 🎤 VOICE ID
 const VOICE_ID = "XfNU2rGpBa01ckF309OY";
+
+// 🧠 GEMINI CONFIG
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+async function askGemini(instruction, userText) {
+  const prompt = `
+${instruction}
+
+Usuario dijo: "${userText}"
+
+Responde como coach de inglés:
+- en español explicas
+- en inglés das la frase a repetir
+- usa "repeat after me"
+- sé breve, energética y pedagógica
+`;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
+      }),
+    }
+  );
+
+  const data = await res.json();
+
+  return (
+    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+    "Repeat after me: hello"
+  );
+}
 
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
   let isProcessing = false;
   let lastText = "";
-
-  // 🧠 NUEVO: instruction por sesión
-  ws.sessionInstruction = null;
+  ws.sessionInstruction = "";
 
   ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg.toString());
 
-      // 🚀 NUEVO: inicio de sesión con prompt dinámico
+      // 🧠 guardar instruction del frontend
       if (data.type === "start_session") {
         ws.sessionInstruction = data.instruction;
         console.log("🧠 Instruction recibida");
@@ -36,34 +72,25 @@ wss.on("connection", (ws) => {
 
       const text = data?.text?.trim();
 
-      console.log("🎤 Usuario:", text);
-
       if (!text || text.length < 2) return;
 
-      if (text === lastText) {
-        console.log("⚠️ duplicado ignorado");
-        return;
-      }
-
-      if (isProcessing) {
-        console.log("⚠️ busy, ignorado");
-        return;
-      }
+      if (text === lastText || isProcessing) return;
 
       lastText = text;
       isProcessing = true;
 
-      // 🧠 USO DEL PROMPT DINÁMICO (si existe)
-      const coachPrefix =
-        ws.sessionInstruction
-          ? "Repeat after me:"
-          : "Repeat after me:";
+      console.log("🎤 Usuario:", text);
 
-      const reply = `${coachPrefix} ${text}`;
+      // 🧠 GEMINI genera el coach real
+      const coachReply = await askGemini(
+        ws.sessionInstruction,
+        text
+      );
 
-      console.log("🧠 FRASE:", reply);
+      console.log("🧠 Coach:", coachReply);
 
-      const res = await fetch(
+      // 🔊 ELEVENLABS SOLO VOZ
+      const audioRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
           method: "POST",
@@ -73,25 +100,21 @@ wss.on("connection", (ws) => {
             Accept: "audio/mpeg",
           },
           body: JSON.stringify({
-            text: reply,
+            text: coachReply,
             model_id: "eleven_multilingual_v2",
           }),
         }
       );
 
-      if (!res.ok) {
-        const err = await res.text();
-        console.log("❌ TTS ERROR:", err);
+      if (!audioRes.ok) {
+        console.log("❌ TTS ERROR:", await audioRes.text());
         return;
       }
 
-      const audioBuffer = await res.arrayBuffer();
+      const audioBuffer = await audioRes.arrayBuffer();
       const base64 = Buffer.from(audioBuffer).toString("base64");
 
-      console.log("🔊 AUDIO OK");
-
       ws.send(JSON.stringify({ audio: base64 }));
-
     } catch (err) {
       console.log("❌ ERROR:", err);
     } finally {
