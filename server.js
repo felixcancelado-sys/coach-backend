@@ -1,16 +1,26 @@
-import WebSocket, { WebSocketServer } from "ws";
+import http from "http";
+import { WebSocketServer } from "ws";
 import fetch from "node-fetch";
 
 const PORT = process.env.PORT || 8080;
 
 const GEMINI_KEY = process.env.GEMINI_KEY;
 const ELEVEN_KEY = process.env.ELEVEN_KEY;
-const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; // puedes cambiar luego
 
-const wss = new WebSocketServer({ port: PORT });
+// 🔊 VOZ (puedes cambiar luego)
+const VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 
-console.log("🚀 Backend entrenador iniciado");
+// 🌐 SERVIDOR HTTP (OBLIGATORIO EN RAILWAY)
+const server = http.createServer();
 
+const wss = new WebSocketServer({ server });
+
+server.listen(PORT, () => {
+  console.log("🚀 Backend entrenador iniciado");
+  console.log("🚀 Listening on", PORT);
+});
+
+// 🔌 CONEXIÓN FRONTEND
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
@@ -21,6 +31,8 @@ wss.on("connection", (ws) => {
       if (!data.text) return;
 
       const userText = data.text;
+
+      console.log("🎤 Usuario:", userText);
 
       // 🧠 PROMPT ENTRENADOR
       const prompt = `
@@ -35,6 +47,11 @@ Your job:
 4. Provide correct sentence in English
 5. Ask to repeat
 
+Rules:
+- Spanish for explanation
+- English ONLY for correct sentence
+- Be short and dynamic
+
 Format:
 
 Motivación en español
@@ -47,7 +64,7 @@ Frase correcta:
 Pide repetir
 `;
 
-      // 🧠 GEMINI
+      // 🔥 GEMINI (SIN SDK)
       const gRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
         {
@@ -67,8 +84,8 @@ Pide repetir
 
       console.log("🧠 Gemini:", reply);
 
-      // 🔊 ELEVENLABS
-      const tts = await fetch(
+      // 🔊 ELEVENLABS (MP3 FORZADO)
+      const ttsRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
           method: "POST",
@@ -79,6 +96,7 @@ Pide repetir
           body: JSON.stringify({
             text: reply,
             model_id: "eleven_multilingual_v2",
+            output_format: "mp3_44100_128", // 🔥 CLAVE PARA QUE FUNCIONE
             voice_settings: {
               stability: 0.4,
               similarity_boost: 0.8,
@@ -89,14 +107,21 @@ Pide repetir
         }
       );
 
-      const audioBuffer = await tts.arrayBuffer();
-      const base64 = Buffer.from(audioBuffer).toString("base64");
+      const audioBuffer = await ttsRes.arrayBuffer();
+      const base64Audio = Buffer.from(audioBuffer).toString("base64");
 
-      ws.send(JSON.stringify({ audio: base64 }));
+      // 📤 ENVIAR AUDIO AL FRONTEND
+      ws.send(
+        JSON.stringify({
+          audio: base64Audio,
+        })
+      );
     } catch (err) {
       console.error("❌ ERROR:", err.message);
     }
   });
 
-  ws.on("close", () => console.log("🔴 Frontend desconectado"));
+  ws.on("close", () => {
+    console.log("🔴 Frontend desconectado");
+  });
 });
