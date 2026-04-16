@@ -39,7 +39,7 @@ wss.on("connection", async (ws) => {
   try {
     const session = await ai.live.connect({
       // 🔥 PRUEBA 1: El nombre más estándar para v1alpha
-      model: "gemini-2.0-flash-exp", 
+      model: "gemini-2.5-flash-native-audio-latest", 
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
