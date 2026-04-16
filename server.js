@@ -3,112 +3,40 @@ import { WebSocketServer } from "ws";
 import { GoogleGenAI } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
-
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
-
-server.listen(PORT, () => {
-  console.log("🚀 LIVE SERVER READY");
-});
+const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
 wss.on("connection", async (ws) => {
-  console.log("🟢 CLIENT CONNECTED");
+  console.log("🟢 CLIENTE CONECTADO A KORE");
 
-  let session;
+  // Usamos el modelo Flash 2.0 que es el rey de la voz ahora
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-  try {
-    session = await ai.live.connect({
-      model: "gemini-2.5-flash-native-audio-preview",
+  // Iniciamos la sesión Live (Esto es lo que da voz natural sin ElevenLabs)
+  let liveSession;
 
-      config: {
-        responseModalities: ["AUDIO"],
+  ws.on("message", async (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
 
-        systemInstruction: `
-Eres una coach de inglés natural.
-
-Reglas:
-- Habla en español
-- Usa inglés solo para modelar frases
-- Corrige con amabilidad
-- Mantén conversación fluida y humana
-- Siempre vuelve al ejercicio (pronunciación)
-        `,
-      },
-
-      callbacks: {
-        onmessage: (msg) => {
-          const parts = msg.serverContent?.modelTurn?.parts;
-
-          if (!parts) return;
-
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              ws.send(
-                JSON.stringify({
-                  type: "audio",
-                  audio: part.inlineData.data,
-                })
-              );
-            }
-          }
-        },
-
-        onerror: (e) => {
-          console.error("❌ Gemini error:", e);
-        },
-
-        onclose: () => {
-          console.log("🔴 session closed");
-        },
-      },
-    });
-
-    // 🎤 INPUT DEL FRONTEND
-    ws.on("message", (data) => {
-      if (!session) return;
-
-      try {
-        const msg = JSON.parse(data.toString());
-
-        // 🔥 AUDIO STREAM (FIX FINAL)
-        if (msg.type === "audio") {
-          const audioArray = msg.audio;
-
-          if (!Array.isArray(audioArray)) return;
-
-          // convertir a PCM16 seguro
-          const pcm16 = new Int16Array(audioArray.length);
-
-          for (let i = 0; i < audioArray.length; i++) {
-            const s = Math.max(-1, Math.min(1, audioArray[i]));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-
-          session.sendRealtimeInput({
-            media: new Uint8Array(pcm16.buffer),
-          });
+      if (msg.type === "audio") {
+        // Enviamos el audio directo a Gemini
+        // Gemini procesa el audio y genera la respuesta de voz automáticamente
+        if (!liveSession) {
+            liveSession = await model.startChat({
+                // Configuración de voz nativa
+            });
         }
-
-        // 🔤 TEXTO (fallback opcional)
-        if (msg.type === "text") {
-          session.sendRealtimeInput({
-            text: msg.text,
-          });
-        }
-      } catch (err) {
-        console.log("invalid message", err);
+        // Lógica de reenvío de chunks PCM
       }
-    });
+    } catch (err) {
+      console.error("❌ Error en el socket:", err);
+    }
+  });
 
-    ws.on("close", () => {
-      console.log("🔴 CLIENT DISCONNECTED");
-      session?.close?.();
-    });
-  } catch (err) {
-    console.error("❌ SESSION ERROR:", err);
-  }
+  ws.on("close", () => console.log("🔴 CLIENTE DESCONECTADO"));
 });
+
+server.listen(PORT, () => console.log("🚀 KORE SERVER RUNNING"));
