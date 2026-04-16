@@ -25,56 +25,55 @@ wss.on("connection", async (ws) => {
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres Aoede. Responde siempre en español con voz clara." }]
+          parts: [{ text: "Eres Aoede. Saluda de inmediato en español." }]
         }
       },
       callbacks: {
         onmessage: (msg) => {
-          // Extraemos el audio de la respuesta de Gemini
+          // 📡 RADAR: Si Gemini manda algo, lo registramos
+          if (msg.setupComplete) {
+            console.log("✅ CONEXIÓN CON GOOGLE COMPLETADA");
+            // Ahora que sabemos que está listo, saludamos
+            enviarSaludoInicial(session);
+          }
+
           const parts = msg.serverContent?.modelTurn?.parts;
           if (parts) {
             parts.forEach(p => {
               if (p.inlineData?.data) {
-                process.stdout.write("🔊"); // 👈 SI VES ESTO EN RAILWAY, AOEDE ESTÁ HABLANDO
+                process.stdout.write("🔊"); 
                 ws.send(JSON.stringify({ type: "audio", audio: p.inlineData.data }));
               }
             });
           }
         },
         onerror: (e) => console.log("🔴 ERROR EN SESIÓN:", e),
-        onclose: () => console.log("⚪ SESIÓN CON GOOGLE CERRADA")
+        onclose: () => console.log("⚪ SESIÓN CERRADA")
       }
     });
 
-    console.log("🧠 MOTOR KORE ACTIVO (Usando Callbacks)");
-
-    // Saludo forzado: Usamos la estructura de turnos que es más robusta
-    setTimeout(async () => {
-      if (session) {
-        console.log("🗣️ Enviando saludo inicial...");
-        try {
-          await session.send({
-            clientContent: {
-              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español." }] }],
-              turnComplete: true
-            }
-          });
-        } catch (e) {
-          console.log("⚠️ No se pudo enviar el saludo inicial");
-        }
+    // Función interna para asegurar que el saludo se envíe bien
+    async function enviarSaludoInicial(targetSession) {
+      console.log("🗣️ Intentando saludo inicial...");
+      try {
+        await targetSession.send({
+          clientContent: {
+            turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente." }] }],
+            turnComplete: true
+          }
+        });
+      } catch (e) {
+        console.log("⚠️ Falló el envío del saludo, Gemini aún no acepta datos.");
       }
-    }, 2000);
+    }
 
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === "audio" && session) {
           let base64 = typeof msg.audio === "string" ? msg.audio : Buffer.from(new Int16Array(msg.audio).buffer).toString("base64");
-          
           await session.send({ 
-            realtimeInput: { 
-              mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }] 
-            } 
+            realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }] } 
           });
         }
       } catch (e) {}
