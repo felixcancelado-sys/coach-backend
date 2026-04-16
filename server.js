@@ -3,27 +3,51 @@ import { WebSocketServer } from "ws";
 import fetch from "node-fetch";
 
 const PORT = process.env.PORT || 8080;
-const ELEVEN_KEY = process.env.ELEVEN_KEY;
 
-// 🔊 voz (puedes cambiar luego)
+const ELEVEN_KEY = process.env.ELEVEN_KEY;
 const VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 Backend VOZ PRO iniciado");
+  console.log("🚀 Backend VOZ PRO estable iniciado");
 });
+
+// 🔥 CONTROL GLOBAL ANTI DUPLICADOS
+let isProcessing = false;
+let lastText = "";
 
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
-  ws.on("message", async () => {
+  ws.on("message", async (msg) => {
     try {
-      console.log("🎤 Trigger recibido");
+      const data = JSON.parse(msg.toString());
+      const text = data?.text?.trim();
 
-      // 🔥 SOLO FRASE (mínimo consumo)
-      const reply = "I went yesterday.";
+      console.log("🎤 Usuario:", text);
+
+      // ❌ filtro básico
+      if (!text || text.length < 2) return;
+
+      // ❌ anti duplicado global
+      if (text === lastText) {
+        console.log("⚠️ Duplicado ignorado");
+        return;
+      }
+
+      // ❌ evitar requests simultáneos
+      if (isProcessing) {
+        console.log("⚠️ Busy, ignorado");
+        return;
+      }
+
+      lastText = text;
+      isProcessing = true;
+
+      // 🧠 frase mínima (optimizada costo)
+      const reply = `Repeat: ${text}`;
 
       console.log("🧠 FRASE:", reply);
 
@@ -34,30 +58,33 @@ wss.on("connection", (ws) => {
           headers: {
             "xi-api-key": ELEVEN_KEY,
             "Content-Type": "application/json",
-            "Accept": "audio/mpeg"
+            Accept: "audio/mpeg",
           },
           body: JSON.stringify({
             text: reply,
-            model_id: "eleven_multilingual_v2"
+            model_id: "eleven_multilingual_v2",
           }),
         }
       );
 
       if (!ttsRes.ok) {
-        const errText = await ttsRes.text();
-        console.error("❌ ELEVEN ERROR:", errText);
+        const err = await ttsRes.text();
+        console.error("❌ ELEVEN ERROR:", err);
+        isProcessing = false;
         return;
       }
 
       const audioBuffer = await ttsRes.arrayBuffer();
-      const base64Audio = Buffer.from(audioBuffer).toString("base64");
+      const base64 = Buffer.from(audioBuffer).toString("base64");
 
-      console.log("🔊 Audio generado OK");
+      console.log("🔊 AUDIO OK");
 
-      ws.send(JSON.stringify({ audio: base64Audio }));
+      ws.send(JSON.stringify({ audio: base64 }));
 
+      isProcessing = false;
     } catch (err) {
-      console.error("❌ ERROR:", err.message);
+      console.error("❌ ERROR BACKEND:", err);
+      isProcessing = false;
     }
   });
 
