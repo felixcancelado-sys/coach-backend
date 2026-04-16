@@ -1,112 +1,78 @@
-import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
 import { GoogleGenAI } from "@google/genai";
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-
 const PORT = process.env.PORT || 8080;
+
+const server = http.createServer();
+const wss = new WebSocketServer({ server });
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-app.get("/", (_, res) => {
-  res.send("🟢 Gemini Live Streaming Gateway");
+server.listen(PORT, () => {
+  console.log("🚀 LIVE SERVER READY");
 });
 
 wss.on("connection", async (ws) => {
-  console.log("🟢 Client connected");
+  console.log("🟢 CLIENT CONNECTED");
 
-  let session;
+  const session = await ai.live.connect({
+    model: "gemini-2.5-flash-native-audio-preview",
 
-  try {
-    session = await ai.live.connect({
-      model: "gemini-2.5-flash-native-audio-preview",
+    config: {
+      responseModalities: ["AUDIO"],
 
-      config: {
-        responseModalities: ["AUDIO"],
-
-        systemInstruction: `
-Eres una coach de inglés llamada My Team.
+      systemInstruction: `
+Eres una coach de inglés extremadamente natural.
 
 Reglas:
 - Habla en español
-- Usa inglés solo para modelar palabras
+- Usa inglés solo para modelar frases
 - Corrige suavemente
-- Mantén conversación natural
+- Mantén conversación humana fluida
+- Siempre vuelve al ejercicio
 
-Flujo:
-- practicar pronunciación
-- responder preguntas del usuario
-- volver al ejercicio siempre
-        `,
-      },
+Objetivo:
+Entrenar pronunciación en tiempo real (Frases o Libro).
+      `,
+    },
 
-      callbacks: {
-        onopen: () => {
-          console.log("🧠 Gemini Live session opened");
-        },
+    callbacks: {
+      onmessage: (msg) => {
+        const parts = msg.serverContent?.modelTurn?.parts;
 
-        onmessage: (msg) => {
-          const parts = msg.serverContent?.modelTurn?.parts;
+        if (!parts) return;
 
-          if (!parts) return;
-
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              ws.send(
-                JSON.stringify({
-                  type: "audio",
-                  data: part.inlineData.data,
-                })
-              );
-            }
+        for (const part of parts) {
+          if (part.inlineData?.data) {
+            ws.send(
+              JSON.stringify({
+                type: "audio",
+                audio: part.inlineData.data,
+              })
+            );
           }
-        },
-
-        onerror: (e) => {
-          console.error("❌ Gemini error", e);
-        },
-
-        onclose: () => {
-          console.log("🔴 Gemini session closed");
-        },
+        }
       },
-    });
 
-    ws.on("message", (data) => {
-      // audio chunk desde frontend
-      try {
-        const msg = JSON.parse(data.toString());
+      onerror: (e) => console.error(e),
+      onclose: () => console.log("session closed"),
+    },
+  });
 
-        if (msg.type === "audio") {
-          session.sendRealtimeInput({
-            media: msg.data,
-          });
-        }
+  ws.on("message", (data) => {
+    const msg = JSON.parse(data.toString());
 
-        if (msg.type === "text") {
-          session.sendRealtimeInput({
-            text: msg.text,
-          });
-        }
-      } catch (e) {
-        console.log("invalid message");
-      }
-    });
+    if (msg.type === "audio") {
+      session.sendRealtimeInput({
+        media: msg.audio,
+      });
+    }
+  });
 
-    ws.on("close", () => {
-      console.log("🔴 client disconnected");
-      session?.close?.();
-    });
-  } catch (err) {
-    console.error("❌ session error", err);
-  }
-});
-
-server.listen(PORT, () => {
-  console.log("🚀 Live streaming backend running on", PORT);
+  ws.on("close", () => {
+    session?.close?.();
+  });
 });
