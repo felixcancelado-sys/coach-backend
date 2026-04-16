@@ -27,40 +27,41 @@ wss.on("connection", async (ws) => {
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres una coach de inglés. Sé muy breve y amable." }]
+          parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Responde siempre en español." }]
         }
       },
       callbacks: {
         onmessage: (msg) => {
-          // 📡 RADAR 1: Ver si Gemini nos está respondiendo
           if (msg.serverContent?.modelTurn?.parts) {
-            process.stdout.write("🔊"); // Imprime un ícono por cada pedacito de audio que manda Gemini
-            
             const parts = msg.serverContent.modelTurn.parts;
             for (const part of parts) {
+              // Si responde con Audio
               if (part.inlineData?.data) {
+                process.stdout.write("🔊"); 
                 ws.send(JSON.stringify({ type: "audio", audio: part.inlineData.data }));
+              } 
+              // Si responde con Texto (Radar)
+              else if (part.text) {
+                console.log("\n📝 GEMINI ESCRIBIÓ:", part.text);
               }
             }
-          } else if (msg.turnComplete) {
-            console.log("\n✅ GEMINI TERMINÓ DE HABLAR");
+          } else if (msg.serverContent?.interrupted) {
+            console.log("\n⚠️ GEMINI FUE INTERRUMPIDO POR TU VOZ");
           }
         },
         onerror: (err) => console.error("🔴 ERROR DE GEMINI:", err),
-        onclose: (e) => console.log(`🔴 STREAM CERRADO POR GEMINI: ${e.code}`)
+        onclose: (e) => console.log(`🔴 STREAM CERRADO POR GEMINI.`)
       }
     });
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO (Canal v1alpha)");
 
-    // Saludo inicial forzado
+    // 💥 SALUDO FORZADO (Texto simple, a prueba de fallos)
     setTimeout(async () => {
-      console.log("🗣️ Forzando saludo inicial...");
+      console.log("🗣️ Forzando saludo inicial de Aoede...");
       try {
         if (typeof session.send === 'function') {
-          await session.send({
-            clientContent: { turns: [{ role: "user", parts: [{ text: "Hola Aoede, di 'Hola, te escucho' en español." }] }], turnComplete: true }
-          });
+          await session.send("Hola Aoede, preséntate brevemente en español y dime que me escuchas.");
         }
       } catch (err) {
         console.error("⚠️ Error en el saludo:", err.message);
@@ -71,27 +72,40 @@ wss.on("connection", async (ws) => {
       if (!session) return;
       try {
         const msg = JSON.parse(data.toString());
+        let base64Audio = null;
 
-        if (msg.type === "audio" && typeof msg.audio === "string") {
-          // 📡 RADAR 2: Confirmar que tu voz llega al servidor
+        // 🛡️ ADAPTADOR UNIVERSAL DE FRONTEND
+        if (msg.type === "audio" && Array.isArray(msg.audio)) {
+          // Frontend Viejo (Cloudflare cacheado)
+          const pcm16 = new Int16Array(msg.audio.length);
+          for (let i = 0; i < msg.audio.length; i++) {
+            const v = Math.max(-1, Math.min(1, msg.audio[i]));
+            pcm16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+          }
+          base64Audio = Buffer.from(pcm16.buffer).toString("base64");
+        } else if (msg.type === "audio" && typeof msg.audio === "string") {
+          // Frontend Nuevo
+          base64Audio = msg.audio;
+        }
+
+        // Si tenemos audio, se lo mandamos a Gemini
+        if (base64Audio) {
           if (!audioMicRecibido) {
-            console.log("🎤 AUDIO DEL MICRÓFONO RECIBIÉNDOSE PERFECTAMENTE");
+            console.log("\n🎤 AUDIO DEL MICRÓFONO RECIBIÉNDOSE PERFECTAMENTE");
             audioMicRecibido = true;
           }
 
           if (typeof session.send === 'function') {
             await session.send({
-              realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] }
+              realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64Audio }] }
             });
           }
         }
-      } catch (err) {
-        console.error("⚠️ Error procesando micrófono:", err.message);
-      }
+      } catch (err) {}
     });
 
     ws.on("close", () => {
-      console.log("🔴 CLIENT DISCONNECTED (El usuario cerró o recargó la página)");
+      console.log("🔴 CLIENT DISCONNECTED");
       session = null;
     });
 
