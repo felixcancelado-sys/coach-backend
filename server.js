@@ -6,8 +6,8 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-// Inicialización estándar para ESM
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+// Verificación de API KEY
+const apiKey = process.env.GEMINI_API_KEY;
 
 server.listen(PORT, () => {
   console.log(`🚀 KORE BACKEND READY ON PORT ${PORT}`);
@@ -17,7 +17,17 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
   try {
+    if (!apiKey) throw new Error("GEMINI_API_KEY no configurada en Railway");
+
+    // FORMA DE EMERGENCIA: Inicializamos y sacamos el modelo en un solo paso
+    const genAI = new GoogleGenAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+
+    // Probamos si la función existe antes de seguir
+    if (typeof model.startChat !== 'function') {
+      throw new Error("El SDK no cargó correctamente las funciones de chat");
+    }
+
     const chat = model.startChat();
     console.log("🧠 MOTOR KORE DESPIERTO");
 
@@ -41,12 +51,13 @@ wss.on("connection", async (ws) => {
           }));
         }
       } catch (e) {
-        console.error("⚠️ Error:", e.message);
+        console.error("⚠️ Error en mensaje:", e.message);
       }
     });
 
   } catch (err) {
-    console.error("❌ ERROR CRÍTICO:", err.message);
+    console.error("❌ ERROR DETECTADO:", err.message);
+    ws.send(JSON.stringify({ type: "error", message: err.message }));
   }
 
   ws.on("close", () => console.log("🔴 CLIENTE DESCONECTADO"));
