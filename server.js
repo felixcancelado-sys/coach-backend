@@ -6,7 +6,11 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// 🔥 LA CLAVE: Obligamos a la librería a usar el canal v1alpha
+const ai = new GoogleGenAI({ 
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: { apiVersion: 'v1alpha' } 
+});
 
 server.listen(PORT, () => {
   console.log("🚀 BACKEND READY ON PORT", PORT);
@@ -19,8 +23,8 @@ wss.on("connection", async (ws) => {
 
   try {
     session = await ai.live.connect({
-      // 🔥 AQUÍ ESTÁ LA MAGIA: El nombre oficial y definitivo
-      model: "gemini-2.0-flash", 
+      // 🚀 EL MODELO DEFINITIVO PARA AUDIO NATIVO
+      model: "gemini-2.5-flash-native-audio-preview-12-2025", 
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
@@ -50,26 +54,24 @@ wss.on("connection", async (ws) => {
       }
     });
 
-    console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
+    console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO (Canal v1alpha)");
 
-    // Trampa de prueba: Aoede saludará automáticamente al segundo de conectar
+    // Trampa de prueba: Aoede saludará automáticamente al conectar
     setTimeout(async () => {
       if (session && typeof session.send === 'function') {
         console.log("🗣️ Forzando saludo inicial de Aoede...");
         try {
           await session.send({
             clientContent: {
-              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español y dime que estás lista." }] }],
+              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español y dime que me escuchas." }] }],
               turnComplete: true
             }
           });
-        } catch (err) {
-          console.error("⚠️ Error forzando el saludo:", err.message);
-        }
+        } catch (err) {}
       }
     }, 1000);
 
-    // Bucle para procesar tu voz
+    // Bucle para procesar tu voz y enviarla a Gemini
     ws.on("message", async (data) => {
       if (!session) return;
       try {
@@ -84,20 +86,25 @@ wss.on("connection", async (ws) => {
 
           const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
 
-          if (typeof session.send === 'function') {
-            await session.send({
-              realtimeInput: {
-                mediaChunks: [{
-                  mimeType: "audio/pcm;rate=16000",
-                  data: base64Audio
-                }]
-              }
-            });
-          }
+          await session.send({
+            realtimeInput: {
+              mediaChunks: [{
+                mimeType: "audio/pcm;rate=16000",
+                data: base64Audio
+              }]
+            }
+          });
         }
-      } catch (err) {
-        // Silenciamos los errores de parseo
-      }
+        
+        if (msg.type === "text") {
+          await session.send({
+            clientContent: {
+              turns: [{ role: "user", parts: [{ text: msg.text }] }],
+              turnComplete: true
+            }
+          });
+        }
+      } catch (err) {}
     });
 
     ws.on("close", () => {
