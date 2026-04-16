@@ -1,10 +1,13 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import * as GoogleAI from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
+
+// Inicialización limpia
+const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
 server.listen(PORT, () => {
   console.log(`🚀 KORE BACKEND READY ON PORT ${PORT}`);
@@ -14,22 +17,10 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("Falta GEMINI_API_KEY");
-
-    // PARCHE MAESTRO: Accedemos a la clase de forma dinámica
-    // Esto evita el error de "is not a function" si la importación falló
-    const GoogleGenAI = GoogleAI.GoogleGenAI || GoogleAI.default?.GoogleGenAI;
+    // Usamos el modelo Flash 2.0
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
     
-    if (!GoogleGenAI) {
-      throw new Error("No se pudo encontrar la clase GoogleGenAI en la librería");
-    }
-
-    const genAI = new GoogleGenAI(apiKey);
-    
-    // Usamos el nombre del modelo tal cual lo pide la librería
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
+    // Iniciamos chat básico (muy estable)
     const chat = model.startChat();
     console.log("🧠 MOTOR KORE DESPIERTO");
 
@@ -44,16 +35,22 @@ wss.on("connection", async (ws) => {
                 data: msg.audio
               }
             },
-            { text: "Responde brevemente." }
+            { text: "Responde de forma muy breve en español." }
           ]);
-          ws.send(JSON.stringify({ type: "text", text: result.response.text() }));
+          
+          ws.send(JSON.stringify({ 
+            type: "text", 
+            text: result.response.text() 
+          }));
         }
       } catch (e) {
-        console.error("⚠️ Error:", e.message);
+        console.error("⚠️ Error en mensaje:", e.message);
       }
     });
 
   } catch (err) {
-    console.error("❌ ERROR DETECTADO:", err.message);
+    console.error("❌ ERROR CRÍTICO:", err.message);
   }
+
+  ws.on("close", () => console.log("🔴 CLIENTE DESCONECTADO"));
 });
