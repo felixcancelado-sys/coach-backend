@@ -6,7 +6,6 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-// Inicialización limpia
 const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
 server.listen(PORT, () => {
@@ -17,11 +16,10 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
   try {
-    // Usamos el modelo Flash 2.0
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-    
-    // Iniciamos chat básico (muy estable)
+    // Usamos el modelo más estable para evitar errores de preview
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const chat = model.startChat();
+    
     console.log("🧠 MOTOR KORE DESPIERTO");
 
     ws.on("message", async (data) => {
@@ -35,7 +33,7 @@ wss.on("connection", async (ws) => {
                 data: msg.audio
               }
             },
-            { text: "Responde de forma muy breve en español." }
+            { text: "Responde brevemente en español." }
           ]);
           
           ws.send(JSON.stringify({ 
@@ -44,12 +42,12 @@ wss.on("connection", async (ws) => {
           }));
         }
       } catch (e) {
-        console.error("⚠️ Error en mensaje:", e.message);
+        console.error("⚠️ Error:", e.message);
       }
     });
 
   } catch (err) {
-    console.error("❌ ERROR CRÍTICO:", err.message);
+    console.error("❌ ERROR:", err.message);
   }
 
   ws.on("close", () => console.log("🔴 CLIENTE DESCONECTADO"));
