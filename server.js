@@ -1,76 +1,102 @@
-import http from "http";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import fetch from "node-fetch";
 
+const PORT = process.env.PORT || 8080;
+
 const GEMINI_KEY = process.env.GEMINI_KEY;
+const ELEVEN_KEY = process.env.ELEVEN_KEY;
+const VOICE_ID = "EXAVITQu4vr4xnSDxMaL"; // puedes cambiar luego
 
-const server = http.createServer();
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ port: PORT });
 
-console.log("🚀 Backend coach STABLE iniciado");
+console.log("🚀 Backend entrenador iniciado");
 
-wss.on("connection", (client) => {
+wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
-  let context = [];
-
-  client.on("message", async (msg) => {
+  ws.on("message", async (message) => {
     try {
-      // 🔥 AUDIO SIMPLIFICADO → lo tratamos como texto base64 (placeholder)
-      const input = msg.toString("base64");
+      const data = JSON.parse(message.toString());
 
-      context.push({ role: "user", parts: [{ text: "Student is speaking in English practice session" }] });
+      if (!data.text) return;
 
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+      const userText = data.text;
+
+      // 🧠 PROMPT ENTRENADOR
+      const prompt = `
+You are an English trainer for Spanish speakers.
+
+User said: "${userText}"
+
+Your job:
+1. Detect mistakes
+2. Correct them
+3. Explain briefly in Spanish
+4. Provide correct sentence in English
+5. Ask to repeat
+
+Format:
+
+Motivación en español
+
+Explicación breve
+
+Frase correcta:
+"Correct sentence"
+
+Pide repetir
+`;
+
+      // 🧠 GEMINI
+      const gRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `
-Eres un coach de inglés en tiempo real.
-Corrige pronunciación.
-Di "repeat after me".
-Sé breve.
-
-El usuario está practicando speaking.
-Responde como profesor dinámico.
-                    `,
-                  },
-                ],
-              },
-            ],
+            contents: [{ parts: [{ text: prompt }] }],
           }),
         }
       );
 
-      const data = await response.json();
+      const gData = await gRes.json();
 
-      const text =
-        data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "Can you repeat after me?";
+      const reply =
+        gData?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        "Intenta otra vez";
 
-      // 🔊 enviamos texto al frontend (luego lo conviertes a voz en browser)
-      client.send(JSON.stringify({ text }));
+      console.log("🧠 Gemini:", reply);
+
+      // 🔊 ELEVENLABS
+      const tts = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": ELEVEN_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            text: reply,
+            model_id: "eleven_multilingual_v2",
+            voice_settings: {
+              stability: 0.4,
+              similarity_boost: 0.8,
+              style: 0.7,
+              use_speaker_boost: true,
+            },
+          }),
+        }
+      );
+
+      const audioBuffer = await tts.arrayBuffer();
+      const base64 = Buffer.from(audioBuffer).toString("base64");
+
+      ws.send(JSON.stringify({ audio: base64 }));
     } catch (err) {
-      console.log("❌ error:", err.message);
+      console.error("❌ ERROR:", err.message);
     }
   });
 
-  client.on("close", () => {
-    console.log("🔴 Frontend desconectado");
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log(`🚀 Listening on ${PORT}`);
+  ws.on("close", () => console.log("🔴 Frontend desconectado"));
 });
