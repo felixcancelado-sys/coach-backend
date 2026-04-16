@@ -1,13 +1,10 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import * as GoogleAI from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
-
-// Verificación de API KEY
-const apiKey = process.env.GEMINI_API_KEY;
 
 server.listen(PORT, () => {
   console.log(`🚀 KORE BACKEND READY ON PORT ${PORT}`);
@@ -17,16 +14,21 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
   try {
-    if (!apiKey) throw new Error("GEMINI_API_KEY no configurada en Railway");
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Falta GEMINI_API_KEY");
 
-    // FORMA DE EMERGENCIA: Inicializamos y sacamos el modelo en un solo paso
-    const genAI = new GoogleGenAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-
-    // Probamos si la función existe antes de seguir
-    if (typeof model.startChat !== 'function') {
-      throw new Error("El SDK no cargó correctamente las funciones de chat");
+    // PARCHE MAESTRO: Accedemos a la clase de forma dinámica
+    // Esto evita el error de "is not a function" si la importación falló
+    const GoogleGenAI = GoogleAI.GoogleGenAI || GoogleAI.default?.GoogleGenAI;
+    
+    if (!GoogleGenAI) {
+      throw new Error("No se pudo encontrar la clase GoogleGenAI en la librería");
     }
+
+    const genAI = new GoogleGenAI(apiKey);
+    
+    // Usamos el nombre del modelo tal cual lo pide la librería
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const chat = model.startChat();
     console.log("🧠 MOTOR KORE DESPIERTO");
@@ -42,23 +44,16 @@ wss.on("connection", async (ws) => {
                 data: msg.audio
               }
             },
-            { text: "Responde brevemente en español." }
+            { text: "Responde brevemente." }
           ]);
-          
-          ws.send(JSON.stringify({ 
-            type: "text", 
-            text: result.response.text() 
-          }));
+          ws.send(JSON.stringify({ type: "text", text: result.response.text() }));
         }
       } catch (e) {
-        console.error("⚠️ Error en mensaje:", e.message);
+        console.error("⚠️ Error:", e.message);
       }
     });
 
   } catch (err) {
     console.error("❌ ERROR DETECTADO:", err.message);
-    ws.send(JSON.stringify({ type: "error", message: err.message }));
   }
-
-  ws.on("close", () => console.log("🔴 CLIENTE DESCONECTADO"));
 });
