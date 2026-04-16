@@ -4,40 +4,31 @@ import fetch from "node-fetch";
 
 const PORT = process.env.PORT || 8080;
 
-const ELEVEN_KEY = process.env.ELEVEN_KEY;
-const VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
-
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 Backend VOZ PRO estable iniciado");
+  console.log("🚀 Backend PRO estable");
 });
 
-// 🔥 CONTROL GLOBAL ANTI DUPLICADOS
-let isProcessing = false;
-let lastText = "";
-
+// 🔥 CONTROL GLOBAL POR CONEXIÓN
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
+
+  let isProcessing = false;
+  let lastText = "";
 
   ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg.toString());
       const text = data?.text?.trim();
 
-      console.log("🎤 Usuario:", text);
-
-      // ❌ filtro básico
       if (!text || text.length < 2) return;
 
-      // ❌ anti duplicado global
-      if (text === lastText) {
-        console.log("⚠️ Duplicado ignorado");
-        return;
-      }
+      // ❌ duplicado
+      if (text === lastText) return;
 
-      // ❌ evitar requests simultáneos
+      // ❌ lock de concurrencia
       if (isProcessing) {
         console.log("⚠️ Busy, ignorado");
         return;
@@ -46,17 +37,16 @@ wss.on("connection", (ws) => {
       lastText = text;
       isProcessing = true;
 
-      // 🧠 frase mínima (optimizada costo)
       const reply = `Repeat: ${text}`;
 
       console.log("🧠 FRASE:", reply);
 
-      const ttsRes = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+      const res = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${process.env.VOICE_ID}`,
         {
           method: "POST",
           headers: {
-            "xi-api-key": ELEVEN_KEY,
+            "xi-api-key": process.env.ELEVEN_KEY,
             "Content-Type": "application/json",
             Accept: "audio/mpeg",
           },
@@ -67,23 +57,19 @@ wss.on("connection", (ws) => {
         }
       );
 
-      if (!ttsRes.ok) {
-        const err = await ttsRes.text();
-        console.error("❌ ELEVEN ERROR:", err);
-        isProcessing = false;
+      if (!res.ok) {
+        console.log("❌ TTS ERROR:", await res.text());
         return;
       }
 
-      const audioBuffer = await ttsRes.arrayBuffer();
-      const base64 = Buffer.from(audioBuffer).toString("base64");
-
-      console.log("🔊 AUDIO OK");
+      const audio = await res.arrayBuffer();
+      const base64 = Buffer.from(audio).toString("base64");
 
       ws.send(JSON.stringify({ audio: base64 }));
 
-      isProcessing = false;
     } catch (err) {
-      console.error("❌ ERROR BACKEND:", err);
+      console.log("❌ ERROR:", err);
+    } finally {
       isProcessing = false;
     }
   });
