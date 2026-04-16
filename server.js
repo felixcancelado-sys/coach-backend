@@ -19,51 +19,51 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENT CONNECTED");
   let session;
 
-  // Función para reenviar el audio al Frontend
-  const handleAudio = (msg) => {
-    const parts = msg.serverContent?.modelTurn?.parts || msg.modelTurn?.parts;
-    if (parts) {
-      parts.forEach(p => {
-        if (p.inlineData?.data) {
-          process.stdout.write("🔊"); // Si ves esto en Railway, Aoede ESTÁ HABLANDO
-          ws.send(JSON.stringify({ type: "audio", audio: p.inlineData.data }));
-        }
-      });
-    }
-  };
-
   try {
     session = await ai.live.connect({
       model: "models/gemini-2.5-flash-native-audio-latest", 
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres Aoede. Saluda de inmediato en español con voz muy clara." }]
+          parts: [{ text: "Eres Aoede. Responde siempre en español con voz clara." }]
         }
       },
-      // MÉTODO 1: Por Callbacks
       callbacks: {
-        onmessage: (msg) => handleAudio(msg),
-        onerror: (e) => console.log("🔴 ERROR SESSION:", e)
+        onmessage: (msg) => {
+          // Extraemos el audio de la respuesta de Gemini
+          const parts = msg.serverContent?.modelTurn?.parts;
+          if (parts) {
+            parts.forEach(p => {
+              if (p.inlineData?.data) {
+                process.stdout.write("🔊"); // 👈 SI VES ESTO EN RAILWAY, AOEDE ESTÁ HABLANDO
+                ws.send(JSON.stringify({ type: "audio", audio: p.inlineData.data }));
+              }
+            });
+          }
+        },
+        onerror: (e) => console.log("🔴 ERROR EN SESIÓN:", e),
+        onclose: () => console.log("⚪ SESIÓN CON GOOGLE CERRADA")
       }
     });
 
-    // MÉTODO 2: Por Eventos (Doble red)
-    session.on("message", (msg) => handleAudio(msg));
+    console.log("🧠 MOTOR KORE ACTIVO (Usando Callbacks)");
 
-    console.log("🧠 MOTOR KORE ACTIVO");
-
-    // Saludo forzado con un texto más simple
+    // Saludo forzado: Usamos la estructura de turnos que es más robusta
     setTimeout(async () => {
       if (session) {
-        console.log("🗣️ Enviando 'Hola' para despertar a Aoede...");
+        console.log("🗣️ Enviando saludo inicial...");
         try {
-          await session.send("Hola Aoede, ¿puedes hablarme en español?");
+          await session.send({
+            clientContent: {
+              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español." }] }],
+              turnComplete: true
+            }
+          });
         } catch (e) {
-          console.log("Error al enviar texto inicial");
+          console.log("⚠️ No se pudo enviar el saludo inicial");
         }
       }
-    }, 1500);
+    }, 2000);
 
     ws.on("message", async (data) => {
       try {
@@ -86,9 +86,6 @@ wss.on("connection", async (ws) => {
     });
 
   } catch (err) {
-    console.error("❌ ERROR CRÍTICO:", err.message);
+    console.error("❌ ERROR AL INICIAR:", err.message);
   }
 });
-
-
-   
