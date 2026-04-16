@@ -6,6 +6,7 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
+// 🔥 LA CLAVE: Obligamos a la librería a usar el canal v1alpha
 const ai = new GoogleGenAI({ 
   apiKey: process.env.GEMINI_API_KEY,
   httpOptions: { apiVersion: 'v1alpha' } 
@@ -22,6 +23,7 @@ wss.on("connection", async (ws) => {
 
   try {
     session = await ai.live.connect({
+      // 🚀 EL MODELO DEFINITIVO PARA AUDIO NATIVO
       model: "gemini-2.5-flash-native-audio-preview-12-2025", 
       config: {
         responseModalities: ["AUDIO"],
@@ -86,18 +88,11 @@ wss.on("connection", async (ws) => {
       try {
         const msg = JSON.parse(data.toString());
 
-        if (msg.type === "audio" && Array.isArray(msg.audio) && msg.audio.length > 0) {
-          const pcm16 = new Int16Array(msg.audio.length);
-          for (let i = 0; i < msg.audio.length; i++) {
-            const v = Math.max(-1, Math.min(1, msg.audio[i]));
-            pcm16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
-          }
-
-          const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
-
+        // 🔥 AHORA RECIBE BASE64 DIRECTAMENTE (Sin crashear la memoria)
+        if (msg.type === "audio" && typeof msg.audio === "string") {
           await sendDataToGemini(
-            { realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64Audio }] } },
-            [{ media: { mimeType: "audio/pcm;rate=16000", data: base64Audio } }]
+            { realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] } },
+            [{ media: { mimeType: "audio/pcm;rate=16000", data: msg.audio } }]
           );
         }
       } catch (err) {}
