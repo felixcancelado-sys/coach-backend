@@ -3,87 +3,40 @@ import { WebSocketServer } from "ws";
 import fetch from "node-fetch";
 
 const PORT = process.env.PORT || 8080;
-
-const GEMINI_KEY = process.env.GEMINI_KEY;
 const ELEVEN_KEY = process.env.ELEVEN_KEY;
 
-// 🔊 VOZ (puedes cambiar luego)
+// 🔊 VOZ
 const VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 
-// 🌐 SERVER HTTP (NECESARIO PARA RAILWAY)
 const server = http.createServer();
-
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 Backend entrenador iniciado");
-  console.log("🚀 Listening on", PORT);
+  console.log("🚀 Backend TEST iniciado");
 });
 
-// 🔌 CONEXIÓN FRONTEND
+// 🔌 conexión
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
-  ws.on("message", async (message) => {
+  ws.on("message", async () => {
     try {
-      const data = JSON.parse(message.toString());
+      console.log("🎤 Trigger recibido");
 
-      if (!data.text) return;
+      // 🎯 TEXTO FIJO (SIN GEMINI)
+      const reply = `
+Muy bien.
 
-      const userText = data.text;
-      console.log("🎤 Usuario:", userText);
+Escucha y repite:
 
-      // 🧠 PROMPT ENTRENADOR
-      const prompt = `
-You are an English trainer for Spanish speakers.
+"I went yesterday."
 
-User said: "${userText}"
-
-Your job:
-1. Detect mistakes
-2. Correct them
-3. Explain briefly in Spanish
-4. Provide correct sentence in English
-5. Ask to repeat
-
-Rules:
-- Spanish for explanation
-- English ONLY for correct sentence
-- Be short and dynamic
-
-Format:
-
-Motivación en español
-
-Explicación breve
-
-Frase correcta:
-"Correct sentence"
-
-Pide repetir
+Otra vez.
 `;
 
-      // 🔥 GEMINI
-      const gRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-          }),
-        }
-      );
+      console.log("🧠 TEXTO A VOZ:", reply);
 
-      const gData = await gRes.json();
-
-      const reply =
-        gData?.candidates?.[0]?.content?.parts?.[0]?.text ||
-        "Intenta otra vez";
-
-      console.log("🧠 Gemini:", reply);
-
-      // 🔊 ELEVENLABS (CON DEBUG REAL)
+      // 🔊 ELEVENLABS
       const ttsRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
@@ -91,37 +44,29 @@ Pide repetir
           headers: {
             "xi-api-key": ELEVEN_KEY,
             "Content-Type": "application/json",
-            "Accept": "audio/mpeg", // 🔥 CLAVE
+            "Accept": "audio/mpeg"
           },
           body: JSON.stringify({
             text: reply,
-            model_id: "eleven_multilingual_v2",
-            voice_settings: {
-              stability: 0.4,
-              similarity_boost: 0.8,
-              style: 0.7,
-              use_speaker_boost: true,
-            },
+            model_id: "eleven_multilingual_v2"
           }),
         }
       );
 
-      // 🔥 SI FALLA, VER ERROR REAL
+      // 🔥 DEBUG REAL
       if (!ttsRes.ok) {
         const errText = await ttsRes.text();
-        console.error("❌ ELEVEN REAL ERROR:", errText);
+        console.error("❌ ELEVEN ERROR REAL:", errText);
         return;
       }
 
       const audioBuffer = await ttsRes.arrayBuffer();
       const base64Audio = Buffer.from(audioBuffer).toString("base64");
 
-      // 📤 ENVIAR AUDIO
-      ws.send(
-        JSON.stringify({
-          audio: base64Audio,
-        })
-      );
+      console.log("🔊 Audio generado OK");
+
+      ws.send(JSON.stringify({ audio: base64Audio }));
+
     } catch (err) {
       console.error("❌ ERROR GENERAL:", err.message);
     }
