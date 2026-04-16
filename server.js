@@ -8,7 +8,7 @@ const wss = new WebSocketServer({ server });
 
 const ai = new GoogleGenAI({ 
   apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: { apiVersion: 'v1alpha' } 
+  httpOptions: { apiVersion: 'v1alpha' } // El canal correcto
 });
 
 server.listen(PORT, () => {
@@ -23,7 +23,8 @@ wss.on("connection", async (ws) => {
 
   try {
     session = await ai.live.connect({
-      model: "gemini-2.5-flash-native-audio-preview-12-2025", 
+      // 🔥 EL ÚNICO MODELO REAL QUE SOPORTA AUDIO:
+      model: "gemini-2.0-flash-exp", 
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
@@ -35,18 +36,18 @@ wss.on("connection", async (ws) => {
           if (msg.serverContent?.modelTurn?.parts) {
             const parts = msg.serverContent.modelTurn.parts;
             for (const part of parts) {
-              // Si responde con Audio
               if (part.inlineData?.data) {
-                process.stdout.write("🔊"); 
+                process.stdout.write("🔊"); // El radar de que está hablando
                 ws.send(JSON.stringify({ type: "audio", audio: part.inlineData.data }));
               } 
-              // Si responde con Texto (Radar)
               else if (part.text) {
                 console.log("\n📝 GEMINI ESCRIBIÓ:", part.text);
               }
             }
           } else if (msg.serverContent?.interrupted) {
             console.log("\n⚠️ GEMINI FUE INTERRUMPIDO POR TU VOZ");
+          } else if (msg.serverContent?.turnComplete) {
+            console.log("\n✅ GEMINI TERMINÓ DE HABLAR");
           }
         },
         onerror: (err) => console.error("🔴 ERROR DE GEMINI:", err),
@@ -56,12 +57,17 @@ wss.on("connection", async (ws) => {
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO (Canal v1alpha)");
 
-    // 💥 SALUDO FORZADO (Texto simple, a prueba de fallos)
+    // 💥 SALUDO FORZADO (Estructura oficial para obligar respuesta)
     setTimeout(async () => {
       console.log("🗣️ Forzando saludo inicial de Aoede...");
       try {
         if (typeof session.send === 'function') {
-          await session.send("Hola Aoede, preséntate brevemente en español y dime que me escuchas.");
+          await session.send({
+            clientContent: { 
+              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español y dime que me escuchas." }] }],
+              turnComplete: true // Esto le dice "ya terminé de hablar, respóndeme"
+            }
+          });
         }
       } catch (err) {
         console.error("⚠️ Error en el saludo:", err.message);
@@ -74,9 +80,7 @@ wss.on("connection", async (ws) => {
         const msg = JSON.parse(data.toString());
         let base64Audio = null;
 
-        // 🛡️ ADAPTADOR UNIVERSAL DE FRONTEND
         if (msg.type === "audio" && Array.isArray(msg.audio)) {
-          // Frontend Viejo (Cloudflare cacheado)
           const pcm16 = new Int16Array(msg.audio.length);
           for (let i = 0; i < msg.audio.length; i++) {
             const v = Math.max(-1, Math.min(1, msg.audio[i]));
@@ -84,11 +88,9 @@ wss.on("connection", async (ws) => {
           }
           base64Audio = Buffer.from(pcm16.buffer).toString("base64");
         } else if (msg.type === "audio" && typeof msg.audio === "string") {
-          // Frontend Nuevo
           base64Audio = msg.audio;
         }
 
-        // Si tenemos audio, se lo mandamos a Gemini
         if (base64Audio) {
           if (!audioMicRecibido) {
             console.log("\n🎤 AUDIO DEL MICRÓFONO RECIBIÉNDOSE PERFECTAMENTE");
