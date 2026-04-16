@@ -1,178 +1,67 @@
-import http from "http";
-import { WebSocketServer } from "ws";
-import fetch from "node-fetch";
+import express from "express";
+import cors from "cors";
+import { GoogleGenAI } from "@google/genai";
+
+const app = express();
+app.use(cors());
+app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 
-const server = http.createServer();
-const wss = new WebSocketServer({ server });
-
-server.listen(PORT, () => {
-  console.log("🚀 COACH INTELIGENTE PRO ONLINE");
+// 🔐 API KEY OCULTA (Railway ENV VAR)
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
-// 🔊 VOZ
-const VOICE_ID = "XfNU2rGpBa01ckF309OY";
+// 🚀 HEALTH CHECK
+app.get("/", (req, res) => {
+  res.send("🟢 Gemini Live Secure Backend Running");
+});
 
-// 🔑 KEYS
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ELEVEN_KEY = process.env.ELEVEN_KEY;
-
-// 🧠 HELPERS
-const normalize = (t) =>
-  t.toLowerCase().replace(/[.,!?]/g, "").trim();
-
-// 📦 SESSIONS
-const sessions = new Map();
-
-// 🧠 GEMINI SOLO PARA EXPLICAR / CONVERSAR
-async function askGemini(state, userText) {
-  const prompt = `
-Eres una coach de inglés llamada My Team Coach.
-
-IMPORTANTE:
-- No controlas el flujo.
-- Solo explicas, corriges y conversas.
-- Siempre vuelves suavemente al ejercicio.
-
-CONTEXTO:
-Modo: ${state.mode}
-Palabra actual: ${state.items?.[state.stepIndex] || "ninguna"}
-
-USUARIO:
-${userText}
-
-RESPONDE NATURAL, CORTO, EDUCATIVO.
-`;
-
+// 🎤 START LIVE SESSION
+app.post("/live/start", async (req, res) => {
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-        }),
-      }
-    );
+    const { topic } = req.body;
 
-    const data = await res.json();
+    if (!topic) {
+      return res.status(400).json({ error: "Missing topic" });
+    }
 
-    return (
-      data?.candidates?.[0]?.content?.parts?.[0]?.text || null
-    );
-  } catch {
-    return null;
-  }
-}
+    const session = await ai.live.connect({
+      model: "gemini-2.5-flash-native-audio-preview",
 
-// 🔊 TTS
-async function speak(ws, text) {
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
-    {
-      method: "POST",
-      headers: {
-        "xi-api-key": ELEVEN_KEY,
-        "Content-Type": "application/json",
-        Accept: "audio/mpeg",
+      config: {
+        responseModalities: ["AUDIO"],
+
+        systemInstruction: `
+Eres una coach de inglés llamada My Team.
+
+Reglas:
+- Habla en español
+- Usa inglés solo para modelar palabras
+- Sé natural, educativa y motivadora
+
+Tema actual: ${topic}
+
+Si el usuario pregunta algo, responde y vuelve al ejercicio.
+        `,
       },
-      body: JSON.stringify({
-        text,
-        model_id: "eleven_multilingual_v2",
-      }),
-    }
-  );
+    });
 
-  if (!res.ok) return;
+    // ⚠️ IMPORTANTE:
+    // No enviamos el stream completo aquí (se maneja en frontend o gateway real)
+    // Solo devolvemos confirmación
 
-  const audio = await res.arrayBuffer();
-  ws.send(
-    JSON.stringify({
-      audio: Buffer.from(audio).toString("base64"),
-    })
-  );
-}
+    res.json({
+      ok: true,
+      message: "Live session ready",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to start session" });
+  }
+});
 
-// 🚀 WS
-wss.on("connection", (ws) => {
-  console.log("🟢 Frontend conectado");
-
-  const id = Math.random().toString(36).slice(2);
-
-  sessions.set(id, {
-    mode: null,
-    items: [],
-    stepIndex: 0,
-  });
-
-  ws.id = id;
-
-  ws.on("message", async (msg) => {
-    const data = JSON.parse(msg.toString());
-    const state = sessions.get(id);
-
-    if (!state) return;
-
-    // 🧠 START SESSION
-    if (data.type === "start_session") {
-      state.mode = data.mode;
-      state.items = data.items;
-      state.stepIndex = 0;
-
-      await speak(
-        ws,
-        state.mode === "book"
-          ? "Vamos a comenzar el libro"
-          : "Vamos a practicar frases de la semana"
-      );
-
-      return;
-    }
-
-    const text = normalize(data.text);
-    if (!text || text.length < 2) return;
-
-    const current = normalize(state.items[state.stepIndex]);
-
-    console.log("🎤 Usuario:", text);
-
-    // ✅ SI ES CORRECTO
-    if (text.includes(current)) {
-      state.stepIndex++;
-
-      if (state.stepIndex >= state.items.length) {
-        await speak(
-          ws,
-          "Well done! See you in the next training"
-        );
-
-        ws.close();
-        sessions.delete(id);
-        return;
-      }
-
-      await speak(ws, "Muy bien, siguiente");
-
-      return;
-    }
-
-    // 💬 SI NO ES CORRECTO → CONVERSACIÓN NATURAL
-    const reply = await askGemini(state, data.text);
-
-    if (reply) {
-      await speak(ws, reply);
-    } else {
-      await speak(
-        ws,
-        `Intenta otra vez: ${state.items[state.stepIndex]}`
-      );
-    }
-  });
-
-  ws.on("close", () => {
-    sessions.delete(id);
-    console.log("🔴 Frontend desconectado");
-  });
+app.listen(PORT, () => {
+  console.log(`🚀 Backend Live Seguro corriendo en puerto ${PORT}`);
 });
