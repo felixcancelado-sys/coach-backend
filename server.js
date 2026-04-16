@@ -8,25 +8,36 @@ const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 COACH INTELIGENTE iniciado");
+  console.log("🚀 COACH INTELIGENTE ONLINE");
 });
 
+// 🎤 VOICE
 const VOICE_ID = "XfNU2rGpBa01ckF309OY";
 
-// 🧠 GEMINI CONFIG
+// 🧠 GEMINI
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const ELEVEN_KEY = process.env.ELEVEN_KEY;
 
+// 🧠 GEMINI FUNCTION
 async function askGemini(instruction, userText) {
   const prompt = `
-${instruction}
+Eres una coach de inglés llamada My Team Coach.
 
-Usuario dijo: "${userText}"
+REGLAS IMPORTANTES:
+- No eres un repetidor.
+- No digas "repeat after me" siempre.
+- Solo lo usas cuando el usuario está practicando pronunciación.
+- Mantienes conversación natural.
+- Explicas en español.
+- Das frases en inglés solo cuando enseñes.
 
-Responde como coach de inglés:
-- en español explicas
-- en inglés das la frase a repetir
-- usa "repeat after me"
-- sé breve, energética y pedagógica
+CONTEXTO DE CLASE:
+${instruction || "Conversación libre"}
+
+USUARIO DIJO:
+"${userText}"
+
+Responde como una coach humana, natural, motivadora y educativa.
 `;
 
   const res = await fetch(
@@ -35,11 +46,7 @@ Responde como coach de inglés:
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: prompt }],
-          },
-        ],
+        contents: [{ parts: [{ text: prompt }] }],
       }),
     }
   );
@@ -48,22 +55,24 @@ Responde como coach de inglés:
 
   return (
     data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Repeat after me: hello"
+    "Let’s continue practicing English together."
   );
 }
 
+// 🚀 WS SERVER
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
   let isProcessing = false;
   let lastText = "";
+
   ws.sessionInstruction = "";
 
   ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg.toString());
 
-      // 🧠 guardar instruction del frontend
+      // 🧠 INICIO DE SESIÓN
       if (data.type === "start_session") {
         ws.sessionInstruction = data.instruction;
         console.log("🧠 Instruction recibida");
@@ -81,7 +90,7 @@ wss.on("connection", (ws) => {
 
       console.log("🎤 Usuario:", text);
 
-      // 🧠 GEMINI genera el coach real
+      // 🧠 GEMINI (COACH REAL)
       const coachReply = await askGemini(
         ws.sessionInstruction,
         text
@@ -89,13 +98,13 @@ wss.on("connection", (ws) => {
 
       console.log("🧠 Coach:", coachReply);
 
-      // 🔊 ELEVENLABS SOLO VOZ
+      // 🔊 ELEVENLABS (SOLO VOZ)
       const audioRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
           method: "POST",
           headers: {
-            "xi-api-key": process.env.ELEVEN_KEY,
+            "xi-api-key": ELEVEN_KEY,
             "Content-Type": "application/json",
             Accept: "audio/mpeg",
           },
@@ -115,6 +124,7 @@ wss.on("connection", (ws) => {
       const base64 = Buffer.from(audioBuffer).toString("base64");
 
       ws.send(JSON.stringify({ audio: base64 }));
+
     } catch (err) {
       console.log("❌ ERROR:", err);
     } finally {
