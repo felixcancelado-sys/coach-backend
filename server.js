@@ -11,33 +11,40 @@ server.listen(PORT, () => {
   console.log("🚀 Backend VOZ PRO iniciado");
 });
 
-// 🎤 TU VOICE ID (FIJO)
+// 🎤 VOICE ID
 const VOICE_ID = "XfNU2rGpBa01ckF309OY";
 
-// 🧠 control anti-duplicados
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
   let isProcessing = false;
   let lastText = "";
 
+  // 🧠 NUEVO: instruction por sesión
+  ws.sessionInstruction = null;
+
   ws.on("message", async (msg) => {
     try {
       const data = JSON.parse(msg.toString());
+
+      // 🚀 NUEVO: inicio de sesión con prompt dinámico
+      if (data.type === "start_session") {
+        ws.sessionInstruction = data.instruction;
+        console.log("🧠 Instruction recibida");
+        return;
+      }
+
       const text = data?.text?.trim();
 
       console.log("🎤 Usuario:", text);
 
-      // ❌ filtros base
       if (!text || text.length < 2) return;
 
-      // ❌ evitar duplicados
       if (text === lastText) {
         console.log("⚠️ duplicado ignorado");
         return;
       }
 
-      // ❌ evitar concurrencia
       if (isProcessing) {
         console.log("⚠️ busy, ignorado");
         return;
@@ -46,8 +53,13 @@ wss.on("connection", (ws) => {
       lastText = text;
       isProcessing = true;
 
-      // 🧠 frase optimizada para voz natural
-      const reply = `Repeat after me: ${text}`;
+      // 🧠 USO DEL PROMPT DINÁMICO (si existe)
+      const coachPrefix =
+        ws.sessionInstruction
+          ? "Repeat after me:"
+          : "Repeat after me:";
+
+      const reply = `${coachPrefix} ${text}`;
 
       console.log("🧠 FRASE:", reply);
 
@@ -70,7 +82,6 @@ wss.on("connection", (ws) => {
       if (!res.ok) {
         const err = await res.text();
         console.log("❌ TTS ERROR:", err);
-        isProcessing = false;
         return;
       }
 
@@ -80,6 +91,7 @@ wss.on("connection", (ws) => {
       console.log("🔊 AUDIO OK");
 
       ws.send(JSON.stringify({ audio: base64 }));
+
     } catch (err) {
       console.log("❌ ERROR:", err);
     } finally {
