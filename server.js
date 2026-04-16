@@ -54,21 +54,33 @@ wss.on("connection", async (ws) => {
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO (Canal v1alpha)");
 
-    // 💥 SALUDO INICIAL FORZADO (Sin condicionales, directo a hablar)
+    // 🛡️ ENVIADOR UNIVERSAL: Prueba todos los métodos posibles
+    const sendDataToGemini = async (newFormat, oldFormatArray) => {
+      if (typeof session.send === 'function') {
+        await session.send(newFormat);
+      } else if (typeof session.sendRealtimeInput === 'function') {
+        await session.sendRealtimeInput(oldFormatArray);
+      } else if (session.ws && typeof session.ws.send === 'function') {
+        session.ws.send(JSON.stringify(newFormat));
+      } else {
+        console.log("🚨 MÉTODOS DISPONIBLES EN SESSION:", Object.getOwnPropertyNames(Object.getPrototypeOf(session)));
+      }
+    };
+
+    // 💥 SALUDO INICIAL FORZADO
     setTimeout(async () => {
       console.log("🗣️ Forzando saludo inicial de Aoede...");
       try {
-        await session.send({
-          clientContent: {
-            turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate en español y dime que me escuchas." }] }],
-            turnComplete: true
-          }
-        });
+        await sendDataToGemini(
+          { clientContent: { turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate en español y dime que me escuchas." }] }], turnComplete: true } }, 
+          [{ text: "Hola Aoede, preséntate en español y dime que me escuchas." }]
+        );
       } catch (err) {
         console.error("⚠️ Error en el saludo:", err.message);
       }
-    }, 2000); // 2 segundos de espera para que tu frontend esté listo
+    }, 2000); 
 
+    // 🎙️ PROCESAR AUDIO DEL MICRÓFONO
     ws.on("message", async (data) => {
       if (!session) return;
       try {
@@ -83,14 +95,10 @@ wss.on("connection", async (ws) => {
 
           const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
 
-          await session.send({
-            realtimeInput: {
-              mediaChunks: [{
-                mimeType: "audio/pcm;rate=16000",
-                data: base64Audio
-              }]
-            }
-          });
+          await sendDataToGemini(
+            { realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64Audio }] } },
+            [{ media: { mimeType: "audio/pcm;rate=16000", data: base64Audio } }]
+          );
         }
       } catch (err) {}
     });
