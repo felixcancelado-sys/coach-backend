@@ -6,7 +6,6 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-// Corregido: La API Key se pasa directamente como string
 const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
 server.listen(PORT, () => {
@@ -19,11 +18,10 @@ wss.on("connection", async (ws) => {
   let session;
 
   try {
-    // 1. Obtener el modelo primero (Obligatorio en versiones nuevas)
     const model = ai.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
-    // 2. Conectar al modo Live usando el nombre correcto del modelo
-    session = await (model as any).live.connect({
+    // Eliminamos el "as any" que causaba el error
+    session = await model.live.connect({
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
@@ -32,7 +30,7 @@ wss.on("connection", async (ws) => {
       }
     });
 
-    // Escuchar mensajes de Gemini
+    // Receptor de Gemini
     (async () => {
       try {
         for await (const msg of session.receive()) {
@@ -53,6 +51,7 @@ wss.on("connection", async (ws) => {
       }
     })();
 
+    // Receptor del Frontend
     ws.on("message", (data) => {
       if (!session) return;
       try {
@@ -80,7 +79,7 @@ wss.on("connection", async (ws) => {
           session.sendRealtimeInput([{ text: msg.text }]);
         }
       } catch (err) {
-        console.error("⚠️ Error procesando mensaje del front:", err.message);
+        console.error("⚠️ Error:", err.message);
       }
     });
 
