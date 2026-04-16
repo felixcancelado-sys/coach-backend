@@ -5,17 +5,16 @@ import fetch from "node-fetch";
 const PORT = process.env.PORT || 8080;
 const ELEVEN_KEY = process.env.ELEVEN_KEY;
 
-// 🔊 VOZ
+// 🔊 voz (puedes cambiar luego)
 const VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 Backend TEST iniciado");
+  console.log("🚀 Backend VOZ PRO iniciado");
 });
 
-// 🔌 conexión
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
@@ -23,20 +22,11 @@ wss.on("connection", (ws) => {
     try {
       console.log("🎤 Trigger recibido");
 
-      // 🎯 TEXTO FIJO (SIN GEMINI)
-      const reply = `
-Muy bien.
+      // 🔥 SOLO FRASE (mínimo consumo)
+      const reply = "I went yesterday.";
 
-Escucha y repite:
+      console.log("🧠 FRASE:", reply);
 
-"I went yesterday."
-
-Otra vez.
-`;
-
-      console.log("🧠 TEXTO A VOZ:", reply);
-
-      // 🔊 ELEVENLABS
       const ttsRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
@@ -53,10 +43,9 @@ Otra vez.
         }
       );
 
-      // 🔥 DEBUG REAL
       if (!ttsRes.ok) {
         const errText = await ttsRes.text();
-        console.error("❌ ELEVEN ERROR REAL:", errText);
+        console.error("❌ ELEVEN ERROR:", errText);
         return;
       }
 
@@ -68,7 +57,7 @@ Otra vez.
       ws.send(JSON.stringify({ audio: base64Audio }));
 
     } catch (err) {
-      console.error("❌ ERROR GENERAL:", err.message);
+      console.error("❌ ERROR:", err.message);
     }
   });
 
