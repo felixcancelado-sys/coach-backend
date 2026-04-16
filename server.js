@@ -6,7 +6,6 @@ const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-// 🔥 LA CLAVE: Obligamos a la librería a usar el canal v1alpha
 const ai = new GoogleGenAI({ 
   apiKey: process.env.GEMINI_API_KEY,
   httpOptions: { apiVersion: 'v1alpha' } 
@@ -20,86 +19,79 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENT CONNECTED");
 
   let session;
+  let audioMicRecibido = false;
 
   try {
     session = await ai.live.connect({
-      // 🚀 EL MODELO DEFINITIVO PARA AUDIO NATIVO
       model: "gemini-2.5-flash-native-audio-preview-12-2025", 
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Hablas español y ayudas con la pronunciación." }]
+          parts: [{ text: "Eres una coach de inglés. Sé muy breve y amable." }]
         }
       },
       callbacks: {
         onmessage: (msg) => {
-          const parts = msg.serverContent?.modelTurn?.parts;
-          if (!parts) return;
-
-          for (const part of parts) {
-            if (part.inlineData?.data) {
-              ws.send(JSON.stringify({
-                type: "audio",
-                audio: part.inlineData.data,
-              }));
+          // 📡 RADAR 1: Ver si Gemini nos está respondiendo
+          if (msg.serverContent?.modelTurn?.parts) {
+            process.stdout.write("🔊"); // Imprime un ícono por cada pedacito de audio que manda Gemini
+            
+            const parts = msg.serverContent.modelTurn.parts;
+            for (const part of parts) {
+              if (part.inlineData?.data) {
+                ws.send(JSON.stringify({ type: "audio", audio: part.inlineData.data }));
+              }
             }
+          } else if (msg.turnComplete) {
+            console.log("\n✅ GEMINI TERMINÓ DE HABLAR");
           }
         },
-        onerror: (err) => {
-          console.error("🔴 ERROR DE GEMINI:", err);
-        },
-        onclose: (e) => {
-          console.log(`🔴 STREAM CERRADO POR GEMINI. Código: ${e.code}`);
-        }
+        onerror: (err) => console.error("🔴 ERROR DE GEMINI:", err),
+        onclose: (e) => console.log(`🔴 STREAM CERRADO POR GEMINI: ${e.code}`)
       }
     });
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO (Canal v1alpha)");
 
-    // 🛡️ ENVIADOR UNIVERSAL: Prueba todos los métodos posibles
-    const sendDataToGemini = async (newFormat, oldFormatArray) => {
-      if (typeof session.send === 'function') {
-        await session.send(newFormat);
-      } else if (typeof session.sendRealtimeInput === 'function') {
-        await session.sendRealtimeInput(oldFormatArray);
-      } else if (session.ws && typeof session.ws.send === 'function') {
-        session.ws.send(JSON.stringify(newFormat));
-      } else {
-        console.log("🚨 MÉTODOS DISPONIBLES EN SESSION:", Object.getOwnPropertyNames(Object.getPrototypeOf(session)));
-      }
-    };
-
-    // 💥 SALUDO INICIAL FORZADO
+    // Saludo inicial forzado
     setTimeout(async () => {
-      console.log("🗣️ Forzando saludo inicial de Aoede...");
+      console.log("🗣️ Forzando saludo inicial...");
       try {
-        await sendDataToGemini(
-          { clientContent: { turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate en español y dime que me escuchas." }] }], turnComplete: true } }, 
-          [{ text: "Hola Aoede, preséntate en español y dime que me escuchas." }]
-        );
+        if (typeof session.send === 'function') {
+          await session.send({
+            clientContent: { turns: [{ role: "user", parts: [{ text: "Hola Aoede, di 'Hola, te escucho' en español." }] }], turnComplete: true }
+          });
+        }
       } catch (err) {
         console.error("⚠️ Error en el saludo:", err.message);
       }
     }, 2000); 
 
-    // 🎙️ PROCESAR AUDIO DEL MICRÓFONO
     ws.on("message", async (data) => {
       if (!session) return;
       try {
         const msg = JSON.parse(data.toString());
 
-        // 🔥 AHORA RECIBE BASE64 DIRECTAMENTE (Sin crashear la memoria)
         if (msg.type === "audio" && typeof msg.audio === "string") {
-          await sendDataToGemini(
-            { realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] } },
-            [{ media: { mimeType: "audio/pcm;rate=16000", data: msg.audio } }]
-          );
+          // 📡 RADAR 2: Confirmar que tu voz llega al servidor
+          if (!audioMicRecibido) {
+            console.log("🎤 AUDIO DEL MICRÓFONO RECIBIÉNDOSE PERFECTAMENTE");
+            audioMicRecibido = true;
+          }
+
+          if (typeof session.send === 'function') {
+            await session.send({
+              realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] }
+            });
+          }
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error("⚠️ Error procesando micrófono:", err.message);
+      }
     });
 
     ws.on("close", () => {
-      console.log("🔴 CLIENT DISCONNECTED");
+      console.log("🔴 CLIENT DISCONNECTED (El usuario cerró o recargó la página)");
       session = null;
     });
 
