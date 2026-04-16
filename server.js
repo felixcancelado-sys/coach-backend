@@ -8,37 +8,41 @@ const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 COACH INTELIGENTE ONLINE");
+  console.log("🚀 COACH INTELIGENTE PRO ONLINE");
 });
 
-// 🎤 VOICE CONFIG
+// 🔊 VOZ
 const VOICE_ID = "XfNU2rGpBa01ckF309OY";
 
 // 🔑 KEYS
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ELEVEN_KEY = process.env.ELEVEN_KEY;
 
-// 🧠 GEMINI (COACH BRAIN)
-async function askGemini(instruction, userText) {
+// 🧠 HELPERS
+const normalize = (t) =>
+  t.toLowerCase().replace(/[.,!?]/g, "").trim();
+
+// 📦 SESSIONS
+const sessions = new Map();
+
+// 🧠 GEMINI SOLO PARA EXPLICAR / CONVERSAR
+async function askGemini(state, userText) {
   const prompt = `
 Eres una coach de inglés llamada My Team Coach.
 
-REGLAS:
-- Respondes de forma natural, no repetitiva
-- No uses siempre "repeat after me"
-- Solo lo usas si estás enseñando pronunciación
-- Si el usuario conversa, conversas
-- Si el usuario practica, corriges
-- Siempre eres clara, corta y motivadora
-- Español para explicar, inglés solo para ejemplos
+IMPORTANTE:
+- No controlas el flujo.
+- Solo explicas, corriges y conversas.
+- Siempre vuelves suavemente al ejercicio.
 
-CONTEXTO DE CLASE:
-${instruction || "Conversación libre"}
+CONTEXTO:
+Modo: ${state.mode}
+Palabra actual: ${state.items?.[state.stepIndex] || "ninguna"}
 
 USUARIO:
-"${userText}"
+${userText}
 
-RESPONDE COMO UNA COACH REAL (NO ROBOT).
+RESPONDE NATURAL, CORTO, EDUCATIVO.
 `;
 
   try {
@@ -48,12 +52,7 @@ RESPONDE COMO UNA COACH REAL (NO ROBOT).
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: prompt }],
-            },
-          ],
+          contents: [{ parts: [{ text: prompt }] }],
         }),
       }
     );
@@ -61,94 +60,119 @@ RESPONDE COMO UNA COACH REAL (NO ROBOT).
     const data = await res.json();
 
     return (
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      null
+      data?.candidates?.[0]?.content?.parts?.[0]?.text || null
     );
-  } catch (err) {
-    console.log("❌ GEMINI ERROR:", err);
+  } catch {
     return null;
   }
 }
 
-// 🚀 SERVER WS
+// 🔊 TTS
+async function speak(ws, text) {
+  const res = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": ELEVEN_KEY,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_multilingual_v2",
+      }),
+    }
+  );
+
+  if (!res.ok) return;
+
+  const audio = await res.arrayBuffer();
+  ws.send(
+    JSON.stringify({
+      audio: Buffer.from(audio).toString("base64"),
+    })
+  );
+}
+
+// 🚀 WS
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
-  let isProcessing = false;
-  let lastText = "";
+  const id = Math.random().toString(36).slice(2);
 
-  ws.sessionInstruction = "";
+  sessions.set(id, {
+    mode: null,
+    items: [],
+    stepIndex: 0,
+  });
+
+  ws.id = id;
 
   ws.on("message", async (msg) => {
-    try {
-      const data = JSON.parse(msg.toString());
+    const data = JSON.parse(msg.toString());
+    const state = sessions.get(id);
 
-      // 🧠 inicio sesión
-      if (data.type === "start_session") {
-        ws.sessionInstruction = data.instruction;
-        console.log("🧠 Instruction recibida");
+    if (!state) return;
+
+    // 🧠 START SESSION
+    if (data.type === "start_session") {
+      state.mode = data.mode;
+      state.items = data.items;
+      state.stepIndex = 0;
+
+      await speak(
+        ws,
+        state.mode === "book"
+          ? "Vamos a comenzar el libro"
+          : "Vamos a practicar frases de la semana"
+      );
+
+      return;
+    }
+
+    const text = normalize(data.text);
+    if (!text || text.length < 2) return;
+
+    const current = normalize(state.items[state.stepIndex]);
+
+    console.log("🎤 Usuario:", text);
+
+    // ✅ SI ES CORRECTO
+    if (text.includes(current)) {
+      state.stepIndex++;
+
+      if (state.stepIndex >= state.items.length) {
+        await speak(
+          ws,
+          "Well done! See you in the next training"
+        );
+
+        ws.close();
+        sessions.delete(id);
         return;
       }
 
-      const text = data?.text?.trim();
+      await speak(ws, "Muy bien, siguiente");
 
-      if (!text || text.length < 2) return;
+      return;
+    }
 
-      if (text === lastText || isProcessing) return;
+    // 💬 SI NO ES CORRECTO → CONVERSACIÓN NATURAL
+    const reply = await askGemini(state, data.text);
 
-      lastText = text;
-      isProcessing = true;
-
-      console.log("🎤 Usuario:", text);
-
-      // 🧠 GEMINI RESPONSE
-      let coachReply = await askGemini(
-        ws.sessionInstruction,
-        text
+    if (reply) {
+      await speak(ws, reply);
+    } else {
+      await speak(
+        ws,
+        `Intenta otra vez: ${state.items[state.stepIndex]}`
       );
-
-      // 🧯 fallback si Gemini falla
-      if (!coachReply) {
-        coachReply = `Good job. Repeat after me: ${text}`;
-      }
-
-      console.log("🧠 Coach:", coachReply);
-
-      // 🔊 ELEVENLABS
-      const audioRes = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
-        {
-          method: "POST",
-          headers: {
-            "xi-api-key": ELEVEN_KEY,
-            "Content-Type": "application/json",
-            Accept: "audio/mpeg",
-          },
-          body: JSON.stringify({
-            text: coachReply,
-            model_id: "eleven_multilingual_v2",
-          }),
-        }
-      );
-
-      if (!audioRes.ok) {
-        console.log("❌ TTS ERROR:", await audioRes.text());
-        return;
-      }
-
-      const audioBuffer = await audioRes.arrayBuffer();
-      const base64 = Buffer.from(audioBuffer).toString("base64");
-
-      ws.send(JSON.stringify({ audio: base64 }));
-
-    } catch (err) {
-      console.log("❌ ERROR:", err);
-    } finally {
-      isProcessing = false;
     }
   });
 
   ws.on("close", () => {
+    sessions.delete(id);
     console.log("🔴 Frontend desconectado");
   });
 });
