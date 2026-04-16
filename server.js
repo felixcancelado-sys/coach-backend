@@ -11,55 +11,66 @@ server.listen(PORT, () => {
   console.log("🚀 COACH INTELIGENTE ONLINE");
 });
 
-// 🎤 VOICE
+// 🎤 VOICE CONFIG
 const VOICE_ID = "XfNU2rGpBa01ckF309OY";
 
-// 🧠 GEMINI
+// 🔑 KEYS
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ELEVEN_KEY = process.env.ELEVEN_KEY;
 
-// 🧠 GEMINI FUNCTION
+// 🧠 GEMINI (COACH BRAIN)
 async function askGemini(instruction, userText) {
   const prompt = `
 Eres una coach de inglés llamada My Team Coach.
 
-REGLAS IMPORTANTES:
-- No eres un repetidor.
-- No digas "repeat after me" siempre.
-- Solo lo usas cuando el usuario está practicando pronunciación.
-- Mantienes conversación natural.
-- Explicas en español.
-- Das frases en inglés solo cuando enseñes.
+REGLAS:
+- Respondes de forma natural, no repetitiva
+- No uses siempre "repeat after me"
+- Solo lo usas si estás enseñando pronunciación
+- Si el usuario conversa, conversas
+- Si el usuario practica, corriges
+- Siempre eres clara, corta y motivadora
+- Español para explicar, inglés solo para ejemplos
 
 CONTEXTO DE CLASE:
 ${instruction || "Conversación libre"}
 
-USUARIO DIJO:
+USUARIO:
 "${userText}"
 
-Responde como una coach humana, natural, motivadora y educativa.
+RESPONDE COMO UNA COACH REAL (NO ROBOT).
 `;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    }
-  );
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+        }),
+      }
+    );
 
-  const data = await res.json();
+    const data = await res.json();
 
-  return (
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Let’s continue practicing English together."
-  );
+    return (
+      data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      null
+    );
+  } catch (err) {
+    console.log("❌ GEMINI ERROR:", err);
+    return null;
+  }
 }
 
-// 🚀 WS SERVER
+// 🚀 SERVER WS
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
@@ -72,7 +83,7 @@ wss.on("connection", (ws) => {
     try {
       const data = JSON.parse(msg.toString());
 
-      // 🧠 INICIO DE SESIÓN
+      // 🧠 inicio sesión
       if (data.type === "start_session") {
         ws.sessionInstruction = data.instruction;
         console.log("🧠 Instruction recibida");
@@ -90,15 +101,20 @@ wss.on("connection", (ws) => {
 
       console.log("🎤 Usuario:", text);
 
-      // 🧠 GEMINI (COACH REAL)
-      const coachReply = await askGemini(
+      // 🧠 GEMINI RESPONSE
+      let coachReply = await askGemini(
         ws.sessionInstruction,
         text
       );
 
+      // 🧯 fallback si Gemini falla
+      if (!coachReply) {
+        coachReply = `Good job. Repeat after me: ${text}`;
+      }
+
       console.log("🧠 Coach:", coachReply);
 
-      // 🔊 ELEVENLABS (SOLO VOZ)
+      // 🔊 ELEVENLABS
       const audioRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
