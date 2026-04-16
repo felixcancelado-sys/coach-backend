@@ -21,13 +21,11 @@ wss.on("connection", async (ws) => {
     session = await ai.live.connect({
       model: "gemini-2.0-flash-exp",
       config: {
-        // Directo en config, como lo pidió Railway
         responseModalities: ["AUDIO"],
         systemInstruction: {
           parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Hablas español y ayudas con la pronunciación." }]
         }
       },
-      // LA MAGIA DE JAVASCRIPT: Escuchamos con callbacks
       callbacks: {
         onmessage: (msg) => {
           const parts = msg.serverContent?.modelTurn?.parts;
@@ -45,21 +43,39 @@ wss.on("connection", async (ws) => {
         onerror: (err) => {
           console.error("🔴 ERROR DE GEMINI:", err);
         },
-        onclose: () => {
-          console.log("🔴 STREAM CERRADO POR GEMINI");
+        onclose: (e) => {
+          // AHORA VEREMOS EXACTAMENTE EL CÓDIGO DEL CORTE
+          console.log(`🔴 STREAM CERRADO POR GEMINI. Código: ${e.code}, Razón: ${e.reason || "Sin especificar"}`);
         }
       }
     });
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
 
-    // Recibimos audio del navegador de Félix
+    // 🔥 EL TEST DEFINITIVO: Obligamos a Aoede a hablar apenas se conecta
+    setTimeout(async () => {
+      if (session && typeof session.send === 'function') {
+        console.log("🗣️ Forzando saludo inicial de Aoede...");
+        try {
+          await session.send({
+            clientContent: {
+              turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente en español y dime que me escuchas." }] }],
+              turnComplete: true
+            }
+          });
+        } catch (err) {
+          console.error("⚠️ Error forzando el saludo:", err.message);
+        }
+      }
+    }, 1000); // Esperamos 1 segundo y le mandamos el texto
+
     ws.on("message", async (data) => {
       if (!session) return;
       try {
         const msg = JSON.parse(data.toString());
 
-        if (msg.type === "audio" && Array.isArray(msg.audio)) {
+        // Evitamos enviar arrays vacíos que hacen que Gemini corte la llamada
+        if (msg.type === "audio" && Array.isArray(msg.audio) && msg.audio.length > 0) {
           const pcm16 = new Int16Array(msg.audio.length);
           for (let i = 0; i < msg.audio.length; i++) {
             const v = Math.max(-1, Math.min(1, msg.audio[i]));
@@ -68,7 +84,6 @@ wss.on("connection", async (ws) => {
 
           const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
 
-          // Compatibilidad blindada para el SDK
           if (typeof session.send === 'function') {
             await session.send({
               realtimeInput: {
@@ -78,28 +93,10 @@ wss.on("connection", async (ws) => {
                 }]
               }
             });
-          } else if (typeof session.sendRealtimeInput === 'function') {
-            session.sendRealtimeInput([{
-              mimeType: "audio/pcm;rate=16000",
-              data: base64Audio
-            }]);
-          }
-        }
-
-        if (msg.type === "text") {
-          if (typeof session.send === 'function') {
-             await session.send({
-               clientContent: {
-                 turns: [{ role: "user", parts: [{ text: msg.text }] }],
-                 turnComplete: true
-               }
-             });
-          } else if (typeof session.sendRealtimeInput === 'function') {
-             session.sendRealtimeInput([{ text: msg.text }]);
           }
         }
       } catch (err) {
-        console.error("⚠️ Error enviando a Gemini:", err.message);
+        // Silenciamos los errores de parseo del front para no saturar el log
       }
     });
 
