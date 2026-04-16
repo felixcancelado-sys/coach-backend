@@ -10,7 +10,7 @@ const ELEVEN_KEY = process.env.ELEVEN_KEY;
 // 🔊 VOZ (puedes cambiar luego)
 const VOICE_ID = "EXAVITQu4vr4xnSDxMaL";
 
-// 🌐 SERVIDOR HTTP (OBLIGATORIO EN RAILWAY)
+// 🌐 SERVER HTTP (NECESARIO PARA RAILWAY)
 const server = http.createServer();
 
 const wss = new WebSocketServer({ server });
@@ -31,7 +31,6 @@ wss.on("connection", (ws) => {
       if (!data.text) return;
 
       const userText = data.text;
-
       console.log("🎤 Usuario:", userText);
 
       // 🧠 PROMPT ENTRENADOR
@@ -64,7 +63,7 @@ Frase correcta:
 Pide repetir
 `;
 
-      // 🔥 GEMINI (SIN SDK)
+      // 🔥 GEMINI
       const gRes = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
         {
@@ -84,7 +83,7 @@ Pide repetir
 
       console.log("🧠 Gemini:", reply);
 
-      // 🔊 ELEVENLABS (MP3 FORZADO)
+      // 🔊 ELEVENLABS (CON DEBUG REAL)
       const ttsRes = await fetch(
         `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
@@ -92,11 +91,11 @@ Pide repetir
           headers: {
             "xi-api-key": ELEVEN_KEY,
             "Content-Type": "application/json",
+            "Accept": "audio/mpeg", // 🔥 CLAVE
           },
           body: JSON.stringify({
             text: reply,
             model_id: "eleven_multilingual_v2",
-            output_format: "mp3_44100_128", // 🔥 CLAVE PARA QUE FUNCIONE
             voice_settings: {
               stability: 0.4,
               similarity_boost: 0.8,
@@ -107,17 +106,24 @@ Pide repetir
         }
       );
 
+      // 🔥 SI FALLA, VER ERROR REAL
+      if (!ttsRes.ok) {
+        const errText = await ttsRes.text();
+        console.error("❌ ELEVEN REAL ERROR:", errText);
+        return;
+      }
+
       const audioBuffer = await ttsRes.arrayBuffer();
       const base64Audio = Buffer.from(audioBuffer).toString("base64");
 
-      // 📤 ENVIAR AUDIO AL FRONTEND
+      // 📤 ENVIAR AUDIO
       ws.send(
         JSON.stringify({
           audio: base64Audio,
         })
       );
     } catch (err) {
-      console.error("❌ ERROR:", err.message);
+      console.error("❌ ERROR GENERAL:", err.message);
     }
   });
 
