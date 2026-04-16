@@ -1,13 +1,13 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import * as GoogleGenerativeAI from "@google/genai"; // Importación total
 
 const PORT = process.env.PORT || 8080;
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-// 1. Inicialización directa y robusta
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+// Usamos el constructor desde el espacio de nombres completo
+const genAI = new GoogleGenerativeAI.GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 server.listen(PORT, () => {
   console.log(`🚀 KORE BACKEND READY ON PORT ${PORT}`);
@@ -17,22 +17,21 @@ wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
   try {
-    // 2. Usamos el método directamente sobre la instancia genAI
-    // El modelo Flash 2.0 es el que necesitamos para velocidad KORE
+    // Intentamos obtener el modelo de forma segura
     const model = genAI.getGenerativeModel({ 
       model: "gemini-2.0-flash-exp" 
     });
 
-    // 3. Iniciamos un chat que soporte envío de archivos/audio
+    // Iniciamos la sesión
     const chat = model.startChat();
-    console.log("🧠 MOTOR KORE INICIALIZADO");
+    console.log("🧠 MOTOR KORE DESPIERTO");
 
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
 
         if (msg.type === "audio" && msg.audio) {
-          // Enviamos el audio a Gemini
+          // Procesamos el audio
           const result = await chat.sendMessage([
             {
               inlineData: {
@@ -40,26 +39,23 @@ wss.on("connection", async (ws) => {
                 data: msg.audio
               }
             },
-            { text: "Responde de forma breve y natural en español." }
+            { text: "Responde brevemente en español." }
           ]);
 
           const responseText = result.response.text();
-          
-          // Enviamos la respuesta de texto (o audio si configuramos el stream)
           ws.send(JSON.stringify({ 
             type: "text", 
             text: responseText 
           }));
         }
       } catch (e) {
-        console.error("⚠️ Error procesando mensaje:", e.message);
+        console.error("⚠️ Error en proceso:", e.message);
       }
     });
 
   } catch (err) {
-    // Si llegamos acá, es que el motor no arrancó
     console.error("❌ ERROR CRÍTICO MOTOR:", err.message);
-    ws.send(JSON.stringify({ type: "error", content: "Error al despertar a Aoede" }));
+    ws.send(JSON.stringify({ type: "error", content: "Error de inicialización" }));
   }
 
   ws.on("close", () => {
