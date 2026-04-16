@@ -18,20 +18,28 @@ wss.on("connection", async (ws) => {
   let session;
 
   try {
-    // Conexión exitosa, ahora con CALLBACKS para que no se cierre
+    // 1. LA CONFIGURACIÓN ESTRICTA QUE EXIGE GEMINI 2.0
     session = await ai.live.connect({
       model: "gemini-2.0-flash-exp",
       config: {
-        responseModalities: ["AUDIO"],
+        // CORRECCIÓN CLAVE: El audio va dentro de generationConfig
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+        },
         systemInstruction: {
           parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Hablas español y ayudas con la pronunciación." }]
         }
-      },
-      // VOLVEMOS A TU LÓGICA ORIGINAL PARA MANTENER EL STREAM VIVO
-      callbacks: {
-        onmessage: (msg) => {
+      }
+    });
+
+    console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
+
+    // 2. Bucle oficial para escuchar a Gemini
+    (async () => {
+      try {
+        for await (const msg of session.receive()) {
           const parts = msg.serverContent?.modelTurn?.parts;
-          if (!parts) return;
+          if (!parts) continue;
 
           for (const part of parts) {
             if (part.inlineData?.data) {
@@ -41,20 +49,14 @@ wss.on("connection", async (ws) => {
               }));
             }
           }
-        },
-        onerror: (e) => {
-          console.error("🔴 GEMINI STREAM ERROR:", e.message || e);
-        },
-        onclose: () => {
-          console.log("🔴 STREAM DE GEMINI CERRADO");
         }
+      } catch (e) {
+        console.log("🔴 Stream de Gemini cerrado o interrumpido");
       }
-    });
+    })();
 
-    console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
-
-    // Recibir audio del Frontend
-    ws.on("message", (data) => {
+    // 3. Recibir audio del Frontend y enviarlo a Gemini
+    ws.on("message", async (data) => {
       if (!session) return;
       try {
         const msg = JSON.parse(data.toString());
@@ -66,19 +68,22 @@ wss.on("connection", async (ws) => {
             pcm16[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
           }
 
-          // Convertimos a base64 seguro para Node.js
           const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
 
-          session.sendRealtimeInput([{
-            inlineData: {
-              mimeType: "audio/pcm;rate=16000",
-              data: base64Audio
+          // SINTAXIS OFICIAL DEL NUEVO SDK PARA ENVIAR AUDIO
+          await session.send({
+            realtimeInput: {
+              mediaChunks: [{
+                mimeType: "audio/pcm;rate=16000",
+                data: base64Audio
+              }]
             }
-          }]);
+          });
         }
 
         if (msg.type === "text") {
-          session.sendRealtimeInput([{ text: msg.text }]);
+          // SINTAXIS OFICIAL PARA ENVIAR TEXTO
+          await session.send({ text: msg.text });
         }
       } catch (err) {
         console.error("⚠️ Error procesando mensaje de Félix:", err.message);
