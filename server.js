@@ -1,33 +1,29 @@
 import express from "express";
-import cors from "cors";
+import http from "http";
+import { WebSocketServer } from "ws";
 import { GoogleGenAI } from "@google/genai";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 8080;
 
-// 🔐 API KEY OCULTA (Railway ENV VAR)
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// 🚀 HEALTH CHECK
-app.get("/", (req, res) => {
-  res.send("🟢 Gemini Live Secure Backend Running");
+app.get("/", (_, res) => {
+  res.send("🟢 Gemini Live Streaming Gateway");
 });
 
-// 🎤 START LIVE SESSION
-app.post("/live/start", async (req, res) => {
+wss.on("connection", async (ws) => {
+  console.log("🟢 Client connected");
+
+  let session;
+
   try {
-    const { topic } = req.body;
-
-    if (!topic) {
-      return res.status(400).json({ error: "Missing topic" });
-    }
-
-    const session = await ai.live.connect({
+    session = await ai.live.connect({
       model: "gemini-2.5-flash-native-audio-preview",
 
       config: {
@@ -39,29 +35,78 @@ Eres una coach de inglés llamada My Team.
 Reglas:
 - Habla en español
 - Usa inglés solo para modelar palabras
-- Sé natural, educativa y motivadora
+- Corrige suavemente
+- Mantén conversación natural
 
-Tema actual: ${topic}
-
-Si el usuario pregunta algo, responde y vuelve al ejercicio.
+Flujo:
+- practicar pronunciación
+- responder preguntas del usuario
+- volver al ejercicio siempre
         `,
+      },
+
+      callbacks: {
+        onopen: () => {
+          console.log("🧠 Gemini Live session opened");
+        },
+
+        onmessage: (msg) => {
+          const parts = msg.serverContent?.modelTurn?.parts;
+
+          if (!parts) return;
+
+          for (const part of parts) {
+            if (part.inlineData?.data) {
+              ws.send(
+                JSON.stringify({
+                  type: "audio",
+                  data: part.inlineData.data,
+                })
+              );
+            }
+          }
+        },
+
+        onerror: (e) => {
+          console.error("❌ Gemini error", e);
+        },
+
+        onclose: () => {
+          console.log("🔴 Gemini session closed");
+        },
       },
     });
 
-    // ⚠️ IMPORTANTE:
-    // No enviamos el stream completo aquí (se maneja en frontend o gateway real)
-    // Solo devolvemos confirmación
+    ws.on("message", (data) => {
+      // audio chunk desde frontend
+      try {
+        const msg = JSON.parse(data.toString());
 
-    res.json({
-      ok: true,
-      message: "Live session ready",
+        if (msg.type === "audio") {
+          session.sendRealtimeInput({
+            media: msg.data,
+          });
+        }
+
+        if (msg.type === "text") {
+          session.sendRealtimeInput({
+            text: msg.text,
+          });
+        }
+      } catch (e) {
+        console.log("invalid message");
+      }
+    });
+
+    ws.on("close", () => {
+      console.log("🔴 client disconnected");
+      session?.close?.();
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to start session" });
+    console.error("❌ session error", err);
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend Live Seguro corriendo en puerto ${PORT}`);
+server.listen(PORT, () => {
+  console.log("🚀 Live streaming backend running on", PORT);
 });
