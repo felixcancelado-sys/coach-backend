@@ -8,10 +8,13 @@ const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
 server.listen(PORT, () => {
-  console.log("🚀 Backend PRO estable");
+  console.log("🚀 Backend VOZ PRO iniciado");
 });
 
-// 🔥 CONTROL GLOBAL POR CONEXIÓN
+// 🎤 TU VOICE ID (FIJO)
+const VOICE_ID = "XfNU2rGpBa01ckF309OY";
+
+// 🧠 control anti-duplicados
 wss.on("connection", (ws) => {
   console.log("🟢 Frontend conectado");
 
@@ -23,26 +26,33 @@ wss.on("connection", (ws) => {
       const data = JSON.parse(msg.toString());
       const text = data?.text?.trim();
 
+      console.log("🎤 Usuario:", text);
+
+      // ❌ filtros base
       if (!text || text.length < 2) return;
 
-      // ❌ duplicado
-      if (text === lastText) return;
+      // ❌ evitar duplicados
+      if (text === lastText) {
+        console.log("⚠️ duplicado ignorado");
+        return;
+      }
 
-      // ❌ lock de concurrencia
+      // ❌ evitar concurrencia
       if (isProcessing) {
-        console.log("⚠️ Busy, ignorado");
+        console.log("⚠️ busy, ignorado");
         return;
       }
 
       lastText = text;
       isProcessing = true;
 
-      const reply = `Repeat: ${text}`;
+      // 🧠 frase optimizada para voz natural
+      const reply = `Repeat after me: ${text}`;
 
       console.log("🧠 FRASE:", reply);
 
       const res = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${process.env.VOICE_ID}`,
+        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
         {
           method: "POST",
           headers: {
@@ -58,15 +68,18 @@ wss.on("connection", (ws) => {
       );
 
       if (!res.ok) {
-        console.log("❌ TTS ERROR:", await res.text());
+        const err = await res.text();
+        console.log("❌ TTS ERROR:", err);
+        isProcessing = false;
         return;
       }
 
-      const audio = await res.arrayBuffer();
-      const base64 = Buffer.from(audio).toString("base64");
+      const audioBuffer = await res.arrayBuffer();
+      const base64 = Buffer.from(audioBuffer).toString("base64");
+
+      console.log("🔊 AUDIO OK");
 
       ws.send(JSON.stringify({ audio: base64 }));
-
     } catch (err) {
       console.log("❌ ERROR:", err);
     } finally {
