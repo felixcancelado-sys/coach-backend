@@ -1,76 +1,71 @@
 import http from "http";
 import { WebSocketServer } from "ws";
-import WebSocket from "ws";
+import fetch from "node-fetch";
 
 const GEMINI_KEY = process.env.GEMINI_KEY;
 
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
-console.log("🚀 Backend coach iniciado (NO SDK)");
+console.log("🚀 Backend coach STABLE iniciado");
 
 wss.on("connection", (client) => {
   console.log("🟢 Frontend conectado");
 
-  const gemini = new WebSocket(
-    `wss://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-native-audio-latest:bidiGenerateContent?key=${GEMINI_KEY}`
-  );
+  let context = [];
 
-  // 🧠 LOGS CLAVE (AQUÍ ES DONDE VAN)
-  gemini.on("open", () => {
-    console.log("🧠 GEMINI OPEN OK");
+  client.on("message", async (msg) => {
+    try {
+      // 🔥 AUDIO SIMPLIFICADO → lo tratamos como texto base64 (placeholder)
+      const input = msg.toString("base64");
 
-    gemini.send(
-      JSON.stringify({
-        setup: {
-          systemInstruction: {
-            parts: [
+      context.push({ role: "user", parts: [{ text: "Student is speaking in English practice session" }] });
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
               {
-                text: `
+                role: "user",
+                parts: [
+                  {
+                    text: `
 Eres un coach de inglés en tiempo real.
-Corriges pronunciación.
-Sé breve y directo.
-Siempre pide repetir.
-                `,
+Corrige pronunciación.
+Di "repeat after me".
+Sé breve.
+
+El usuario está practicando speaking.
+Responde como profesor dinámico.
+                    `,
+                  },
+                ],
               },
             ],
-          },
-        },
-      })
-    );
-  });
+          }),
+        }
+      );
 
-  gemini.on("error", (e) => {
-    console.log("❌ GEMINI ERROR:", e.message);
-  });
+      const data = await response.json();
 
-  gemini.on("close", () => {
-    console.log("🔴 GEMINI CLOSED");
-  });
+      const text =
+        data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+        "Can you repeat after me?";
 
-  // 🎤 FRONTEND → GEMINI
-  client.on("message", (msg) => {
-    try {
-      if (gemini.readyState === WebSocket.OPEN) {
-        gemini.send(msg);
-      }
+      // 🔊 enviamos texto al frontend (luego lo conviertes a voz en browser)
+      client.send(JSON.stringify({ text }));
     } catch (err) {
-      console.log("❌ ERROR sending audio:", err.message);
-    }
-  });
-
-  // 🔊 GEMINI → FRONTEND
-  gemini.on("message", (msg) => {
-    try {
-      client.send(msg);
-    } catch (err) {
-      console.log("❌ ERROR sending to client:", err.message);
+      console.log("❌ error:", err.message);
     }
   });
 
   client.on("close", () => {
-    console.log("🔴 Frontend disconnected");
-    gemini.close();
+    console.log("🔴 Frontend desconectado");
   });
 });
 
