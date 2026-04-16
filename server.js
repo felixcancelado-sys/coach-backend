@@ -12,7 +12,7 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log("🚀 BACKEND READY - AOEDE ONLINE");
+  console.log("🚀 BACKEND READY - AOEDE ESPERANDO...");
 });
 
 wss.on("connection", async (ws) => {
@@ -25,16 +25,13 @@ wss.on("connection", async (ws) => {
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres Aoede. Saluda de inmediato en español." }]
+          parts: [{ text: "Eres Aoede, una coach de inglés amable. Responde siempre en español de forma breve." }]
         }
       },
       callbacks: {
         onmessage: (msg) => {
-          // 📡 RADAR: Si Gemini manda algo, lo registramos
           if (msg.setupComplete) {
-            console.log("✅ CONEXIÓN CON GOOGLE COMPLETADA");
-            // Ahora que sabemos que está listo, saludamos
-            enviarSaludoInicial(session);
+            console.log("✅ GEMINI LISTO PARA ESCUCHARTE");
           }
 
           const parts = msg.serverContent?.modelTurn?.parts;
@@ -47,31 +44,20 @@ wss.on("connection", async (ws) => {
             });
           }
         },
-        onerror: (e) => console.log("🔴 ERROR EN SESIÓN:", e),
+        onerror: (e) => console.log("🔴 ERROR:", e),
         onclose: () => console.log("⚪ SESIÓN CERRADA")
       }
     });
-
-    // Función interna para asegurar que el saludo se envíe bien
-    async function enviarSaludoInicial(targetSession) {
-      console.log("🗣️ Intentando saludo inicial...");
-      try {
-        await targetSession.send({
-          clientContent: {
-            turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate brevemente." }] }],
-            turnComplete: true
-          }
-        });
-      } catch (e) {
-        console.log("⚠️ Falló el envío del saludo, Gemini aún no acepta datos.");
-      }
-    }
 
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === "audio" && session) {
-          let base64 = typeof msg.audio === "string" ? msg.audio : Buffer.from(new Int16Array(msg.audio).buffer).toString("base64");
+          // Si el audio viene del frontend viejo (Array) o nuevo (Base64)
+          let base64 = typeof msg.audio === "string" 
+            ? msg.audio 
+            : Buffer.from(new Int16Array(msg.audio).buffer).toString("base64");
+          
           await session.send({ 
             realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }] } 
           });
