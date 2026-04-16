@@ -18,25 +18,20 @@ wss.on("connection", async (ws) => {
   let session;
 
   try {
-    // 1. CONFIGURACIÓN CORREGIDA (Como lo pide la advertencia de Railway)
     session = await ai.live.connect({
       model: "gemini-2.0-flash-exp",
       config: {
-        responseModalities: ["AUDIO"], // Lo sacamos de generationConfig
+        // Directo en config, como lo pidió Railway
+        responseModalities: ["AUDIO"],
         systemInstruction: {
           parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Hablas español y ayudas con la pronunciación." }]
         }
-      }
-    });
-
-    console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
-
-    // 2. Escuchar a Gemini
-    (async () => {
-      try {
-        for await (const msg of session.receive()) {
+      },
+      // LA MAGIA DE JAVASCRIPT: Escuchamos con callbacks
+      callbacks: {
+        onmessage: (msg) => {
           const parts = msg.serverContent?.modelTurn?.parts;
-          if (!parts) continue;
+          if (!parts) return;
 
           for (const part of parts) {
             if (part.inlineData?.data) {
@@ -46,14 +41,19 @@ wss.on("connection", async (ws) => {
               }));
             }
           }
+        },
+        onerror: (err) => {
+          console.error("🔴 ERROR DE GEMINI:", err);
+        },
+        onclose: () => {
+          console.log("🔴 STREAM CERRADO POR GEMINI");
         }
-      } catch (e) {
-        // AHORA SÍ SABREMOS POR QUÉ SE CORTA SI VUELVE A PASAR
-        console.log("🔴 STREAM CERRADO. MOTIVO EXACTO:", e.message || e);
       }
-    })();
+    });
 
-    // 3. Enviar audio a Gemini
+    console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
+
+    // Recibimos audio del navegador de Félix
     ws.on("message", async (data) => {
       if (!session) return;
       try {
@@ -68,23 +68,35 @@ wss.on("connection", async (ws) => {
 
           const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
 
-          await session.send({
-            realtimeInput: {
-              mediaChunks: [{
-                mimeType: "audio/pcm;rate=16000",
-                data: base64Audio
-              }]
-            }
-          });
+          // Compatibilidad blindada para el SDK
+          if (typeof session.send === 'function') {
+            await session.send({
+              realtimeInput: {
+                mediaChunks: [{
+                  mimeType: "audio/pcm;rate=16000",
+                  data: base64Audio
+                }]
+              }
+            });
+          } else if (typeof session.sendRealtimeInput === 'function') {
+            session.sendRealtimeInput([{
+              mimeType: "audio/pcm;rate=16000",
+              data: base64Audio
+            }]);
+          }
         }
 
         if (msg.type === "text") {
-          await session.send({
-            clientContent: {
-              turns: [{ role: "user", parts: [{ text: msg.text }] }],
-              turnComplete: true
-            }
-          });
+          if (typeof session.send === 'function') {
+             await session.send({
+               clientContent: {
+                 turns: [{ role: "user", parts: [{ text: msg.text }] }],
+                 turnComplete: true
+               }
+             });
+          } else if (typeof session.sendRealtimeInput === 'function') {
+             session.sendRealtimeInput([{ text: msg.text }]);
+          }
         }
       } catch (err) {
         console.error("⚠️ Error enviando a Gemini:", err.message);
