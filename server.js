@@ -18,14 +18,11 @@ wss.on("connection", async (ws) => {
   let session;
 
   try {
-    // 1. LA CONFIGURACIÓN ESTRICTA QUE EXIGE GEMINI 2.0
+    // 1. CONFIGURACIÓN CORREGIDA (Como lo pide la advertencia de Railway)
     session = await ai.live.connect({
       model: "gemini-2.0-flash-exp",
       config: {
-        // CORRECCIÓN CLAVE: El audio va dentro de generationConfig
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-        },
+        responseModalities: ["AUDIO"], // Lo sacamos de generationConfig
         systemInstruction: {
           parts: [{ text: "Eres una coach de inglés amable llamada Aoede. Hablas español y ayudas con la pronunciación." }]
         }
@@ -34,7 +31,7 @@ wss.on("connection", async (ws) => {
 
     console.log("🧠 MOTOR KORE DESPIERTO Y ESCUCHANDO");
 
-    // 2. Bucle oficial para escuchar a Gemini
+    // 2. Escuchar a Gemini
     (async () => {
       try {
         for await (const msg of session.receive()) {
@@ -51,11 +48,12 @@ wss.on("connection", async (ws) => {
           }
         }
       } catch (e) {
-        console.log("🔴 Stream de Gemini cerrado o interrumpido");
+        // AHORA SÍ SABREMOS POR QUÉ SE CORTA SI VUELVE A PASAR
+        console.log("🔴 STREAM CERRADO. MOTIVO EXACTO:", e.message || e);
       }
     })();
 
-    // 3. Recibir audio del Frontend y enviarlo a Gemini
+    // 3. Enviar audio a Gemini
     ws.on("message", async (data) => {
       if (!session) return;
       try {
@@ -70,7 +68,6 @@ wss.on("connection", async (ws) => {
 
           const base64Audio = Buffer.from(pcm16.buffer).toString("base64");
 
-          // SINTAXIS OFICIAL DEL NUEVO SDK PARA ENVIAR AUDIO
           await session.send({
             realtimeInput: {
               mediaChunks: [{
@@ -82,11 +79,15 @@ wss.on("connection", async (ws) => {
         }
 
         if (msg.type === "text") {
-          // SINTAXIS OFICIAL PARA ENVIAR TEXTO
-          await session.send({ text: msg.text });
+          await session.send({
+            clientContent: {
+              turns: [{ role: "user", parts: [{ text: msg.text }] }],
+              turnComplete: true
+            }
+          });
         }
       } catch (err) {
-        console.error("⚠️ Error procesando mensaje de Félix:", err.message);
+        console.error("⚠️ Error enviando a Gemini:", err.message);
       }
     });
 
@@ -96,6 +97,6 @@ wss.on("connection", async (ws) => {
     });
 
   } catch (err) {
-    console.error("❌ ERROR CRÍTICO:", err.message);
+    console.error("❌ ERROR CRÍTICO AL CONECTAR:", err.message);
   }
 });
