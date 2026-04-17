@@ -8,7 +8,7 @@ const wss = new WebSocketServer({ server });
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: { apiVersion: "v1alpha" },
+  httpOptions: { apiVersion: "v1beta" },
 });
 
 server.listen(PORT, () => {
