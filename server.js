@@ -102,6 +102,7 @@ wss.on("connection", (ws) => {
   let keepAliveInterval = null;
   let pendingCloseAfterTurn = false;
   let closeTriggered = false;
+  let transcriptBuffer = "";
 
   function triggerSessionEnd() {
     if (closeTriggered) return;
@@ -171,11 +172,13 @@ wss.on("connection", (ws) => {
                 return;
               }
 
-              const outputTranscript =
-                msg.serverContent?.outputTranscription?.text;
+              // ✅ OJO: outputTranscription viene fuera de serverContent
+              const outputTranscript = msg.outputTranscription?.text;
 
               if (typeof outputTranscript === "string" && outputTranscript.trim()) {
-                const normalized = outputTranscript.toLowerCase();
+                transcriptBuffer += " " + outputTranscript.trim();
+
+                const normalized = transcriptBuffer.toLowerCase();
                 console.log("📝 OUTPUT TRANSCRIPT:", outputTranscript);
 
                 if (
@@ -217,6 +220,9 @@ wss.on("connection", (ws) => {
                   pendingCloseAfterTurn = false;
                   triggerSessionEnd();
                 }
+
+                // limpiamos buffer por turno
+                transcriptBuffer = "";
               }
             } catch (err) {
               console.error("❌ ERROR MENSAJE GEMINI:", err);
