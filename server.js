@@ -1,6 +1,6 @@
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
 
@@ -30,9 +30,9 @@ wss.on("connection", async (ws) => {
 
   try {
     const session = await ai.live.connect({
-      model: "models/gemini-3.1-flash-live-preview",
+      model: "gemini-3.1-flash-live-preview",
       config: {
-        responseModalities: ["AUDIO"],
+        responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
@@ -43,40 +43,38 @@ wss.on("connection", async (ws) => {
         systemInstruction: {
           parts: [
             {
-              text: `
-Eres Aoede, una coach de inglés amigable, cálida y motivadora.
-
-Reglas:
-- Cuando la sesión inicia, saludas en español.
-- Te presentas brevemente.
-- Luego ayudas al usuario a practicar inglés.
-- Hablas de forma breve y clara.
-- Esperas al usuario después de terminar cada turno.
-              `.trim(),
+              text: [
+                "Eres Aoede, una coach de inglés amigable, cálida y motivadora.",
+                "Cuando la sesión inicia, saludas en español.",
+                "Te presentas brevemente.",
+                "Luego ayudas al usuario a practicar inglés.",
+                "Hablas de forma breve y clara.",
+                "Esperas al usuario al terminar cada turno.",
+              ].join(" "),
             },
           ],
         },
       },
       callbacks: {
+        onopen: () => {
+          console.log("🟣 GOOGLE LIVE ABIERTA");
+        },
+
         onmessage: async (msg) => {
           try {
             if (msg.setupComplete) {
               console.log("✅ SETUP COMPLETO - DESPERTANDO A AOEDE");
               ref.ready = true;
 
-              try {
-                await ref.session.send({
-                  clientContent: {
-                    turns: [
-                      {
-                        role: "user",
-                        parts: [{ text: "Hola Aoede, preséntate." }],
-                      },
-                    ],
-                    turnComplete: true,
-                  },
-                });
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "readyForUser" }));
+              }
 
+              try {
+                // En 3.1 Live, texto/audio en conversación se manda por sendRealtimeInput
+                session.sendRealtimeInput({
+                  text: "Hola Aoede, preséntate.",
+                });
                 console.log("💬 SALUDO ENVIADO");
               } catch (e) {
                 console.error("❌ Error al despertar:", e?.message || e);
@@ -150,12 +148,6 @@ Reglas:
     ref.session = session;
     console.log("🔗 SESIÓN GEMINI ESTABLECIDA");
 
-    // Esto habilita al frontend a esperar señal real del backend
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "readyForUser" }));
-    }
-
-    // Keep alive simple del backend
     keepAliveInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         try {
@@ -176,14 +168,11 @@ Reglas:
         }
 
         if (msg.type === "audio" && ref.session && ref.ready) {
-          await ref.session.send({
-            realtimeInput: {
-              mediaChunks: [
-                {
-                  mimeType: "audio/pcm;rate=16000",
-                  data: msg.audio,
-                },
-              ],
+          // Método correcto del SDK JS para audio en tiempo real
+          ref.session.sendRealtimeInput({
+            audio: {
+              data: msg.audio,
+              mimeType: "audio/pcm;rate=16000",
             },
           });
         }
