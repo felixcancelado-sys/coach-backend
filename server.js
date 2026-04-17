@@ -36,7 +36,7 @@ wss.on("connection", async (ws) => {
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: "Aoede",
+              voiceName: "Kore",
             },
           },
         },
