@@ -12,61 +12,7 @@ const ai = new GoogleGenAI({
   httpOptions: { apiVersion: "v1beta" },
 });
 
-function buildSystemInstruction(topic) {
-
-  let topicInstructions = "";
-
-  if (topic === "Frases de la semana") {
-
-    topicInstructions = `
-TEMA DE ESTA SESIÓN:
-
-Debes trabajar únicamente estas frases:
-
-Good morning
-say good bye
-Take the pencil
-take your implements
-go to the bathroom
-go to your bedroom
-Brush your teeth
-wash your hands
-Clean up your table
-clean up your room
-Clean your nose
-Comb your hair
-
-Siempre dices antes:
-
-repeat after me
-
-Corriges con entusiasmo y cariño.
-`;
-
-  }
-
-
-  if (topic === "Práctica de vocabulario de My Book") {
-
-    topicInstructions = `
-TEMA DE ESTA SESIÓN:
-
-Debes trabajar únicamente estas palabras:
-
-Circle
-Triangle
-Square
-Rectangle
-
-Siempre dices antes:
-
-repeat after me
-
-Corriges con entusiasmo.
-`;
-
-  }
-
+Práctica de vocabulario de My Book
 
   return `
 
