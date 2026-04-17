@@ -12,7 +12,7 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log("🚀 BACKEND READY - MODO PACIENTE");
+  console.log("🚀 BACKEND READY - AOEDE V10");
 });
 
 wss.on("connection", async (ws) => {
@@ -25,14 +25,23 @@ wss.on("connection", async (ws) => {
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres Aoede. Responde siempre en español. No cierres la sesión, espera a que el usuario hable." }]
-        },
-        // Añadimos configuración de voz para evitar el cierre preventivo
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
+          parts: [{ text: "Eres Aoede, una coach de inglés. Saluda inmediatamente al usuario en español con energía." }]
+        }
       },
       callbacks: {
-        onmessage: (msg) => {
-          if (msg.setupComplete) console.log("✅ CONFIGURACIÓN LISTA");
+        onmessage: async (msg) => {
+          // 🏁 CUANDO LA CONFIGURACIÓN ESTÁ LISTA, FORZAMOS EL SALUDO
+          if (msg.setupComplete) {
+            console.log("✅ CONFIGURACIÓN LISTA - DESPERTANDO A AOEDE");
+            try {
+              await session.send({
+                clientContent: {
+                  turns: [{ role: "user", parts: [{ text: "Hola Aoede, preséntate." }] }],
+                  turnComplete: true
+                }
+              });
+            } catch (e) { console.log("Error al despertar"); }
+          }
           
           const parts = msg.serverContent?.modelTurn?.parts;
           if (parts) {
@@ -53,7 +62,6 @@ wss.on("connection", async (ws) => {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === "audio" && session) {
-          // Enviamos el audio con el formato exacto
           session.send({ 
             realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] } 
           });
