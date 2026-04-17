@@ -40,7 +40,7 @@ Corrige con entusiasmo y cariño.
 `;
   }
 
-  if (topic === "Práctica de vocabulario del libro") {
+  if (topic === "Práctica de vocabulario de My Book") {
     topicInstructions = `
 TEMA DE ESTA SESIÓN:
 Debes trabajar únicamente estas palabras, una por una:
