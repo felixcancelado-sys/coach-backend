@@ -100,6 +100,27 @@ wss.on("connection", (ws) => {
   let ready = false;
   let googleClosed = false;
   let keepAliveInterval = null;
+  let pendingCloseAfterTurn = false;
+  let closeTriggered = false;
+
+  function triggerSessionEnd() {
+    if (closeTriggered) return;
+    closeTriggered = true;
+
+    console.log("🏁 CIERRE AUTOMÁTICO DE SESIÓN");
+
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: "sessionEnded" }));
+    }
+
+    setTimeout(() => {
+      try {
+        if (ws.readyState === ws.OPEN) {
+          ws.close(1000, "Sesión completada");
+        }
+      } catch {}
+    }, 500);
+  }
 
   function startGeminiSession() {
     console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
@@ -109,6 +130,7 @@ wss.on("connection", (ws) => {
         model: "gemini-3.1-flash-live-preview",
         config: {
           responseModalities: [Modality.AUDIO],
+          outputAudioTranscription: {},
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -149,6 +171,22 @@ wss.on("connection", (ws) => {
                 return;
               }
 
+              const outputTranscript =
+                msg.serverContent?.outputTranscription?.text;
+
+              if (typeof outputTranscript === "string" && outputTranscript.trim()) {
+                const normalized = outputTranscript.toLowerCase();
+                console.log("📝 OUTPUT TRANSCRIPT:", outputTranscript);
+
+                if (
+                  normalized.includes("hemos terminado la sesión") ||
+                  normalized.includes("well done! and see you in the next training")
+                ) {
+                  pendingCloseAfterTurn = true;
+                  console.log("🏁 DESPEDIDA DETECTADA POR TRANSCRIPCIÓN");
+                }
+              }
+
               const parts = msg.serverContent?.modelTurn?.parts;
 
               if (parts?.length) {
@@ -172,11 +210,12 @@ wss.on("connection", (ws) => {
                 console.log("\n✅ TURNO COMPLETO");
 
                 if (ws.readyState === ws.OPEN) {
-                  ws.send(
-                    JSON.stringify({
-                      type: "turnComplete",
-                    })
-                  );
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
+                }
+
+                if (pendingCloseAfterTurn) {
+                  pendingCloseAfterTurn = false;
+                  triggerSessionEnd();
                 }
               }
             } catch (err) {
@@ -265,6 +304,7 @@ wss.on("connection", (ws) => {
 
     if (keepAliveInterval) {
       clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
     }
 
     if (session && !googleClosed) {
