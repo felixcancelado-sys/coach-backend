@@ -1,5 +1,5 @@
 import http from "http";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer } from "ws";
 import { GoogleGenAI, Modality } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
@@ -100,7 +100,6 @@ wss.on("connection", (ws) => {
   let ready = false;
   let googleClosed = false;
   let keepAliveInterval = null;
-  let pendingCloseAfterTurn = false;
 
   function startGeminiSession() {
     console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
@@ -109,7 +108,7 @@ wss.on("connection", (ws) => {
       .connect({
         model: "gemini-3.1-flash-live-preview",
         config: {
-          responseModalities: [Modality.AUDIO, Modality.TEXT],
+          responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -137,7 +136,7 @@ wss.on("connection", (ws) => {
 
                 ready = true;
 
-                if (ws.readyState === WebSocket.OPEN) {
+                if (ws.readyState === ws.OPEN) {
                   ws.send(JSON.stringify({ type: "readyForUser" }));
                 }
 
@@ -154,22 +153,10 @@ wss.on("connection", (ws) => {
 
               if (parts?.length) {
                 for (const p of parts) {
-                  if (typeof p.text === "string") {
-                    const normalized = p.text.toLowerCase();
-
-                    if (
-                      normalized.includes("hemos terminado la sesión") ||
-                      normalized.includes("well done! and see you in the next training")
-                    ) {
-                      pendingCloseAfterTurn = true;
-                      console.log("🏁 DESPEDIDA DETECTADA");
-                    }
-                  }
-
                   if (p.inlineData?.data) {
                     process.stdout.write("🔊");
 
-                    if (ws.readyState === WebSocket.OPEN) {
+                    if (ws.readyState === ws.OPEN) {
                       ws.send(
                         JSON.stringify({
                           type: "audio",
@@ -184,24 +171,12 @@ wss.on("connection", (ws) => {
               if (msg.serverContent?.turnComplete) {
                 console.log("\n✅ TURNO COMPLETO");
 
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ type: "turnComplete" }));
-                }
-
-                if (pendingCloseAfterTurn && ws.readyState === WebSocket.OPEN) {
-                  pendingCloseAfterTurn = false;
-
+                if (ws.readyState === ws.OPEN) {
                   ws.send(
                     JSON.stringify({
-                      type: "sessionEnded",
+                      type: "turnComplete",
                     })
                   );
-
-                  setTimeout(() => {
-                    try {
-                      ws.close(1000, "Sesión completada");
-                    } catch {}
-                  }, 300);
                 }
               }
             } catch (err) {
@@ -213,7 +188,7 @@ wss.on("connection", (ws) => {
             googleClosed = true;
             console.log(`⚪ GOOGLE CERRÓ: ${e.code}`);
 
-            if (ws.readyState === WebSocket.OPEN) {
+            if (ws.readyState === ws.OPEN) {
               ws.close();
             }
           },
@@ -221,7 +196,7 @@ wss.on("connection", (ws) => {
           onerror: (err) => {
             console.error("🔴 ERROR GEMINI:", err);
 
-            if (ws.readyState === WebSocket.OPEN) {
+            if (ws.readyState === ws.OPEN) {
               ws.send(
                 JSON.stringify({
                   type: "error",
@@ -238,7 +213,7 @@ wss.on("connection", (ws) => {
         console.log("🔗 SESIÓN LISTA");
 
         keepAliveInterval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
+          if (ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ type: "ping" }));
           }
         }, 15000);
@@ -246,7 +221,7 @@ wss.on("connection", (ws) => {
       .catch((err) => {
         console.error("❌ ERROR INICIANDO GEMINI:", err);
 
-        if (ws.readyState === WebSocket.OPEN) {
+        if (ws.readyState === ws.OPEN) {
           ws.send(
             JSON.stringify({
               type: "error",
