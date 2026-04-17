@@ -28,8 +28,10 @@ Debes trabajar únicamente estas frases, una por una:
 - go to your bedroom
 - Brush your teeth
 - wash your hands
-- Clean your table
-- clean your room
+- Clean up your table
+- clean up your room
+- Clean your nose
+- Comb your hair
 
 Debes modelar la pronunciación de cada frase.
 Debes pedir repetición usando siempre: "repeat after me"
@@ -45,6 +47,7 @@ Debes trabajar únicamente estas palabras, una por una:
 - Circle
 - Triangle
 - Square
+- rectangle
 
 Debes:
 - modelar palabras y frases clave en inglés
