@@ -12,19 +12,16 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 BACKEND READY - AOEDE V12 en puerto ${PORT}`);
+  console.log(`🚀 BACKEND READY - AOEDE V13 en puerto ${PORT}`);
 });
 
 wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
-  // FIX #1: Usamos un objeto contenedor para que el callback
-  // pueda acceder a session aunque todavía no fue asignada
   const ref = { session: null, ready: false };
 
   try {
     const session = await ai.live.connect({
-      // FIX #2: Modelo correcto y disponible
       model: "models/gemini-3.1-flash-live-preview",
       config: {
         responseModalities: ["AUDIO"],
@@ -45,30 +42,27 @@ wss.on("connection", async (ws) => {
       },
       callbacks: {
         onmessage: async (msg) => {
-          // FIX #3: Ahora session ya está asignada antes de que llegue setupComplete
           if (msg.setupComplete) {
             console.log("✅ SETUP COMPLETO - DESPERTANDO A AOEDE");
             ref.ready = true;
             try {
-              await ref.session.send({
-                clientContent: {
-                  turns: [
-                    {
-                      role: "user",
-                      parts: [{ text: "Hola Aoede, preséntate." }],
-                    },
-                  ],
-                  turnComplete: true,
-                },
+              // FIXED: sendClientContent en lugar de send()
+              await ref.session.sendClientContent({
+                turns: [
+                  {
+                    role: "user",
+                    parts: [{ text: "Hola Aoede, preséntate." }],
+                  },
+                ],
+                turnComplete: true,
               });
               console.log("💬 SALUDO ENVIADO");
             } catch (e) {
-              // FIX #4: Logueamos el error real
-              console.error("❌ Error al despertar:", e.message, e);
+              console.error("❌ Error al despertar:", e.message);
             }
           }
 
-          // Recibimos audio de Gemini y lo mandamos al frontend
+          // Audio de Gemini → frontend
           const parts = msg.serverContent?.modelTurn?.parts;
           if (parts) {
             parts.forEach((p) => {
@@ -81,7 +75,7 @@ wss.on("connection", async (ws) => {
             });
           }
 
-          // Avisamos al frontend cuando Gemini terminó de hablar
+          // Turno completo → avisar frontend
           if (msg.serverContent?.turnComplete) {
             console.log("\n✅ TURNO COMPLETO");
             if (ws.readyState === ws.OPEN) {
@@ -100,26 +94,23 @@ wss.on("connection", async (ws) => {
       },
     });
 
-    // FIX #3: Asignamos después del await, pero el callback ya puede usarlo
     ref.session = session;
     console.log("🔗 SESIÓN GEMINI ESTABLECIDA");
 
-    // Recibimos audio del frontend y lo mandamos a Gemini
+    // Audio del frontend → Gemini
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
 
-        // FIX #5: Solo enviamos audio cuando Gemini está lista
         if (msg.type === "audio" && ref.session && ref.ready) {
-          ref.session.send({
-            realtimeInput: {
-              mediaChunks: [
-                {
-                  mimeType: "audio/pcm;rate=16000",
-                  data: msg.audio,
-                },
-              ],
-            },
+          // FIXED: sendRealtimeInput en lugar de send()
+          ref.session.sendRealtimeInput({
+            mediaChunks: [
+              {
+                mimeType: "audio/pcm;rate=16000",
+                data: msg.audio,
+              },
+            ],
           });
         }
       } catch (e) {
