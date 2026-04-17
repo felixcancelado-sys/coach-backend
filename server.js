@@ -12,7 +12,7 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 BACKEND READY - AOEDE V11 en puerto ${PORT}`);
+  console.log(`🚀 BACKEND READY - AOEDE V12 en puerto ${PORT}`);
 });
 
 wss.on("connection", async (ws) => {
@@ -25,7 +25,7 @@ wss.on("connection", async (ws) => {
   try {
     const session = await ai.live.connect({
       // FIX #2: Modelo correcto y disponible
-      model: "models/gemini-2.0-flash-live-001",
+      model: "models/gemini-3.1-flash-live-preview",
       config: {
         responseModalities: ["AUDIO"],
         speechConfig: {
