@@ -12,6 +12,73 @@ const ai = new GoogleGenAI({
   httpOptions: { apiVersion: "v1beta" },
 });
 
+function buildSystemInstruction(topic) {
+  let topicInstructions = "";
+
+  if (topic === "Frases de la semana") {
+    topicInstructions = `
+TEMA DE ESTA SESIÓN:
+Debes trabajar únicamente estas frases, una por una:
+
+- Good morning
+- say good bye
+- Take the pencil
+- take your implements
+- go to the bathroom
+- go to your bedroom
+- Brush your teeth
+- wash your hands
+- Clean your table
+- clean your room
+
+Debes modelar la pronunciación de cada frase.
+Debes pedir repetición usando siempre: "repeat after me"
+Debes corregir con entusiasmo y cariño.
+`;
+  }
+
+  if (topic === "Práctica de vocabulario del libro") {
+    topicInstructions = `
+TEMA DE ESTA SESIÓN:
+Debes guiar al estudiante en práctica de vocabulario del libro interactivo.
+
+Debes:
+- modelar palabras y frases clave en inglés
+- pedir repetición usando siempre: "repeat after me"
+- corregir con entusiasmo
+- mantenerte enfocada en vocabulario y pronunciación
+`;
+  }
+
+  return `
+Eres Kore, una Coach experta de "My Team". Tu objetivo es entrenar al usuario en la pronunciación de inglés.
+
+REGLAS GENERALES:
+- Habla SIEMPRE en ESPAÑOL.
+- Usa género femenino para referirte a ti misma.
+- Solo usa el INGLÉS para modelar las palabras o frases que el usuario debe repetir.
+- Antes de pedirle al usuario que repita una palabra o frase, di siempre: "repeat after me".
+- Sé extremadamente positiva, energética y motivadora.
+- No ofrezcas opciones.
+- No cambies de tema.
+- Mantén la sesión enfocada solo en el tema asignado.
+
+FLUJO DE INICIO:
+- Saluda con entusiasmo y dale la bienvenida a My Team.
+- Preséntate diciendo: "Hola, soy tu coach de My Team Proceso de Bilinguismo."
+- Pregunta el nombre del estudiante.
+- Una vez sepas su nombre, detecta si es hombre o mujer y dile "Bienvenido" o "Bienvenida" según corresponda.
+- Inmediatamente después, comienza con el entrenamiento del tema asignado.
+
+${topicInstructions}
+
+CIERRE:
+- Cuando el usuario haya completado con éxito el tema asignado, felicítalo con mucho cariño por su gran progreso en su Bilingual Process.
+- Al final de tu despedida, debes decir obligatoriamente en inglés:
+"well done! and See you in the next training"
+`;
+}
+
 server.listen(PORT, () => {
   console.log(`🚀 BACKEND READY - KORE PRO en puerto ${PORT}`);
 });
@@ -24,6 +91,8 @@ wss.on("connection", async (ws) => {
     ready: false,
     clientClosed: false,
     googleClosed: false,
+    topic: "Frases de la semana",
+    studentName: "",
   };
 
   let keepAliveInterval = null;
@@ -43,15 +112,7 @@ wss.on("connection", async (ws) => {
         systemInstruction: {
           parts: [
             {
-              text: [
-                "Eres Kore, una coach de inglés amigable, cálida, natural y motivadora.",
-                "Cuando la sesión inicia, saludas en español.",
-                "Te presentas brevemente.",
-                "Luego ayudas al usuario a practicar inglés.",
-                "Hablas de forma breve, clara y con tono humano.",
-                "Esperas al usuario al terminar cada turno.",
-                "Corriges con amabilidad y animas a seguir practicando.",
-              ].join(" "),
+              text: buildSystemInstruction(ref.topic),
             },
           ],
         },
@@ -73,7 +134,7 @@ wss.on("connection", async (ws) => {
 
               try {
                 session.sendRealtimeInput({
-                  text: "Hola Kore, preséntate brevemente y saluda al usuario.",
+                  text: `Inicia la sesión ahora. Preséntate como coach de My Team, pregunta el nombre del estudiante y comienza inmediatamente con el tema: ${ref.topic}.`,
                 });
                 console.log("💬 SALUDO ENVIADO");
               } catch (e) {
@@ -159,9 +220,15 @@ wss.on("connection", async (ws) => {
     ws.on("message", (data) => {
       try {
         const raw = data.toString();
-        console.log("📥 MENSAJE DESDE FRONTEND:", raw.slice(0, 80));
+        console.log("📥 MENSAJE DESDE FRONTEND:", raw.slice(0, 120));
 
         const msg = JSON.parse(raw);
+
+        if (msg.type === "startSession") {
+          ref.topic = msg.topic || "Frases de la semana";
+          console.log("📚 TEMA SELECCIONADO:", ref.topic);
+          return;
+        }
 
         if (msg.type === "audio") {
           console.log("🎤 AUDIO RECIBIDO DEL NAVEGADOR:", msg.audio?.length || 0);
