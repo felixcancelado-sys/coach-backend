@@ -12,19 +12,12 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log("🚀 BACKEND READY - ANTI 1006 MODE");
+  console.log("🚀 BACKEND READY - MODO PACIENTE");
 });
 
 wss.on("connection", async (ws) => {
   console.log("🟢 CLIENT CONNECTED");
   let session;
-
-  // Latido constante para evitar que Railway o Cloudflare cierren por inactividad
-  const keepAlive = setInterval(() => {
-    if (ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "heartbeat", timestamp: Date.now() }));
-    }
-  }, 15000);
 
   try {
     session = await ai.live.connect({
@@ -32,11 +25,15 @@ wss.on("connection", async (ws) => {
       config: {
         responseModalities: ["AUDIO"],
         systemInstruction: {
-          parts: [{ text: "Eres Aoede, una coach de inglés. Responde siempre en español de forma breve." }]
-        }
+          parts: [{ text: "Eres Aoede. Responde siempre en español. No cierres la sesión, espera a que el usuario hable." }]
+        },
+        // Añadimos configuración de voz para evitar el cierre preventivo
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
       },
       callbacks: {
         onmessage: (msg) => {
+          if (msg.setupComplete) console.log("✅ CONFIGURACIÓN LISTA");
+          
           const parts = msg.serverContent?.modelTurn?.parts;
           if (parts) {
             parts.forEach(p => {
@@ -47,33 +44,29 @@ wss.on("connection", async (ws) => {
             });
           }
         },
-        onerror: (e) => console.log("🔴 ERROR GEMINI:", e),
-        onclose: () => console.log("⚪ SESIÓN GOOGLE CERRADA")
+        onclose: (e) => console.log(`⚪ GOOGLE CERRÓ: ${e.code}`),
+        onerror: (e) => console.log("🔴 ERROR:", e)
       }
     });
-
-    console.log("✅ GEMINI LISTO");
 
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === "audio" && session) {
-          await session.send({ 
+          // Enviamos el audio con el formato exacto
+          session.send({ 
             realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] } 
           });
         }
-      } catch (e) {
-        // Ignorar errores de parsing de pings
-      }
+      } catch (e) {}
     });
 
     ws.on("close", () => {
-      clearInterval(keepAlive);
-      console.log("🔴 CLIENT DISCONNECTED");
+      console.log("🔴 CLIENTE SE FUE");
       if (session) session.close();
     });
 
   } catch (err) {
-    console.error("❌ ERROR CRÍTICO:", err.message);
+    console.error("❌ ERROR:", err.message);
   }
 });
