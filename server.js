@@ -146,7 +146,7 @@ wss.on("connection", (ws) => {
 
                 session.sendRealtimeInput({
                   text:
-                    "Preséntate como coach My Team, pregunta el nombre del estudiante y comienza el entrenamiento.",
+                    "Preséntate como coach de My Team Bilingual process, pregunta el nombre del estudiante, ESPERA A QUE TE RESPONDA SU NOMBRE y después, comienza el entrenamiento.",
                 });
 
                 console.log("💬 COACH INICIADA");
