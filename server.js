@@ -1,22 +1,39 @@
-// ... (mantenemos las importaciones)
-wss.on("connection", async (ws, req) => {
-  // 🔍 RADAR NUEVO: Ver desde dónde viene la conexión
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-  console.log(`🟢 CLIENT CONNECTED desde IP: ${ip}`);
+import http from "http";
+import { WebSocketServer } from "ws";
+import { GoogleGenAI } from "@google/genai";
 
+const PORT = process.env.PORT || 8080;
+const server = http.createServer();
+const wss = new WebSocketServer({ server });
+
+const ai = new GoogleGenAI({ 
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: { apiVersion: 'v1alpha' } 
+});
+
+server.listen(PORT, () => {
+  console.log("🚀 BACKEND READY - ANTI 1006 MODE");
+});
+
+wss.on("connection", async (ws) => {
+  console.log("🟢 CLIENT CONNECTED");
   let session;
-  
-  // Latido cada 10 segundos para que el Firewall no piense que estamos inactivos
-  const heartBeat = setInterval(() => {
-    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "heartbeat" }));
-  }, 10000);
+
+  // Latido constante para evitar que Railway o Cloudflare cierren por inactividad
+  const keepAlive = setInterval(() => {
+    if (ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "heartbeat", timestamp: Date.now() }));
+    }
+  }, 15000);
 
   try {
     session = await ai.live.connect({
       model: "models/gemini-2.5-flash-native-audio-latest", 
       config: {
         responseModalities: ["AUDIO"],
-        systemInstruction: { parts: [{ text: "Eres Aoede. Responde siempre en español." }] }
+        systemInstruction: {
+          parts: [{ text: "Eres Aoede, una coach de inglés. Responde siempre en español de forma breve." }]
+        }
       },
       callbacks: {
         onmessage: (msg) => {
@@ -30,7 +47,8 @@ wss.on("connection", async (ws, req) => {
             });
           }
         },
-        onclose: () => console.log("⚪ GEMINI CERRÓ SESIÓN")
+        onerror: (e) => console.log("🔴 ERROR GEMINI:", e),
+        onclose: () => console.log("⚪ SESIÓN GOOGLE CERRADA")
       }
     });
 
@@ -44,16 +62,18 @@ wss.on("connection", async (ws, req) => {
             realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] } 
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        // Ignorar errores de parsing de pings
+      }
     });
 
     ws.on("close", () => {
-      clearInterval(heartBeat);
+      clearInterval(keepAlive);
       console.log("🔴 CLIENT DISCONNECTED");
       if (session) session.close();
     });
 
   } catch (err) {
-    console.error("❌ ERROR:", err.message);
+    console.error("❌ ERROR CRÍTICO:", err.message);
   }
 });
