@@ -71,18 +71,20 @@ No ofreces opciones.
 No cambias de tema.
 
 FLUJO:
-1 Saluda con entusiasmo.
-2 Preséntate como coach My Team.
-3 Pregunta el nombre del estudiante.
-4 Usa Bienvenido o Bienvenida según corresponda.
-5 Comienza inmediatamente el entrenamiento.
+1. Saluda con entusiasmo.
+2. Preséntate como coach My Team.
+3. Pregunta el nombre del estudiante.
+4. Usa Bienvenido o Bienvenida según corresponda.
+5. Comienza inmediatamente el entrenamiento.
 
 ${topicInstructions}
 
 CIERRE:
-Felicita al estudiante.
-Termina diciendo exactamente:
-well done! and See you in the next training
+Cuando el entrenamiento termine:
+- despídete con cariño
+- di explícitamente: "Hemos terminado la sesión."
+- luego di exactamente en inglés:
+"well done! and See you in the next training"
 `;
 }
 
@@ -98,6 +100,7 @@ wss.on("connection", (ws) => {
   let ready = false;
   let googleClosed = false;
   let keepAliveInterval = null;
+  let pendingCloseAfterTurn = false;
 
   function startGeminiSession() {
     console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
@@ -105,10 +108,8 @@ wss.on("connection", (ws) => {
     ai.live
       .connect({
         model: "gemini-3.1-flash-live-preview",
-
         config: {
-          responseModalities: [Modality.AUDIO],
-
+          responseModalities: [Modality.AUDIO, Modality.TEXT],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -116,7 +117,6 @@ wss.on("connection", (ws) => {
               },
             },
           },
-
           systemInstruction: {
             parts: [
               {
@@ -125,7 +125,6 @@ wss.on("connection", (ws) => {
             ],
           },
         },
-
         callbacks: {
           onopen: () => {
             console.log("🟣 GOOGLE LIVE ABIERTA");
@@ -138,11 +137,9 @@ wss.on("connection", (ws) => {
 
                 ready = true;
 
-                ws.send(
-                  JSON.stringify({
-                    type: "readyForUser",
-                  })
-                );
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "readyForUser" }));
+                }
 
                 session.sendRealtimeInput({
                   text:
@@ -150,14 +147,25 @@ wss.on("connection", (ws) => {
                 });
 
                 console.log("💬 COACH INICIADA");
-
                 return;
               }
 
               const parts = msg.serverContent?.modelTurn?.parts;
 
-              if (parts) {
-                parts.forEach((p) => {
+              if (parts?.length) {
+                for (const p of parts) {
+                  if (typeof p.text === "string") {
+                    const normalized = p.text.toLowerCase();
+
+                    if (
+                      normalized.includes("hemos terminado la sesión") ||
+                      normalized.includes("well done! and see you in the next training")
+                    ) {
+                      pendingCloseAfterTurn = true;
+                      console.log("🏁 DESPEDIDA DETECTADA");
+                    }
+                  }
+
                   if (p.inlineData?.data) {
                     process.stdout.write("🔊");
 
@@ -170,17 +178,31 @@ wss.on("connection", (ws) => {
                       );
                     }
                   }
-                });
+                }
               }
 
               if (msg.serverContent?.turnComplete) {
                 console.log("\n✅ TURNO COMPLETO");
 
-                ws.send(
-                  JSON.stringify({
-                    type: "turnComplete",
-                  })
-                );
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
+                }
+
+                if (pendingCloseAfterTurn && ws.readyState === WebSocket.OPEN) {
+                  pendingCloseAfterTurn = false;
+
+                  ws.send(
+                    JSON.stringify({
+                      type: "sessionEnded",
+                    })
+                  );
+
+                  setTimeout(() => {
+                    try {
+                      ws.close(1000, "Sesión completada");
+                    } catch {}
+                  }, 300);
+                }
               }
             } catch (err) {
               console.error("❌ ERROR MENSAJE GEMINI:", err);
@@ -189,23 +211,24 @@ wss.on("connection", (ws) => {
 
           onclose: (e) => {
             googleClosed = true;
+            console.log(`⚪ GOOGLE CERRÓ: ${e.code}`);
 
-            console.log(
-              `⚪ GOOGLE CERRÓ: ${e.code}`
-            );
-
-            ws.close();
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
           },
 
           onerror: (err) => {
             console.error("🔴 ERROR GEMINI:", err);
 
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "error gemini",
-              })
-            );
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "error gemini",
+                })
+              );
+            }
           },
         },
       })
@@ -223,12 +246,14 @@ wss.on("connection", (ws) => {
       .catch((err) => {
         console.error("❌ ERROR INICIANDO GEMINI:", err);
 
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            message: "no se pudo iniciar gemini",
-          })
-        );
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "no se pudo iniciar gemini",
+            })
+          );
+        }
       });
   }
 
@@ -238,11 +263,8 @@ wss.on("connection", (ws) => {
 
       if (msg.type === "startSession") {
         topic = msg.topic;
-
         console.log("📚 TEMA RECIBIDO:", topic);
-
         startGeminiSession();
-
         return;
       }
 
