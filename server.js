@@ -1,8 +1,9 @@
 import http from "http";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import { GoogleGenAI } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
+
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 
@@ -12,13 +13,20 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 BACKEND READY - AOEDE V13 en puerto ${PORT}`);
+  console.log(`🚀 BACKEND READY - AOEDE PRO en puerto ${PORT}`);
 });
 
 wss.on("connection", async (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
-  const ref = { session: null, ready: false };
+  const ref = {
+    session: null,
+    ready: false,
+    clientClosed: false,
+    googleClosed: false,
+  };
+
+  let keepAliveInterval = null;
 
   try {
     const session = await ai.live.connect({
@@ -27,69 +35,114 @@ wss.on("connection", async (ws) => {
         responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: "Aoede" },
+            prebuiltVoiceConfig: {
+              voiceName: "Aoede",
+            },
           },
         },
         systemInstruction: {
           parts: [
             {
-              text: `Eres Aoede, una coach de inglés amigable y motivadora. 
-              Cuando el usuario te salude, respóndele en español con energía y 
-              preséntate brevemente. Luego ayudalo a practicar inglés.`,
+              text: `
+Eres Aoede, una coach de inglés amigable, cálida y motivadora.
+
+Reglas:
+- Cuando la sesión inicia, saludas en español.
+- Te presentas brevemente.
+- Luego ayudas al usuario a practicar inglés.
+- Hablas de forma breve y clara.
+- Esperas al usuario después de terminar cada turno.
+              `.trim(),
             },
           ],
         },
       },
       callbacks: {
         onmessage: async (msg) => {
-          if (msg.setupComplete) {
-            console.log("✅ SETUP COMPLETO - DESPERTANDO A AOEDE");
-            ref.ready = true;
-            try {
-              // FIXED: sendClientContent en lugar de send()
-              await ref.session.sendClientContent({
-                turns: [
-                  {
-                    role: "user",
-                    parts: [{ text: "Hola Aoede, preséntate." }],
-                  },
-                ],
-                turnComplete: true,
-              });
-              console.log("💬 SALUDO ENVIADO");
-            } catch (e) {
-              console.error("❌ Error al despertar:", e.message);
-            }
-          }
+          try {
+            if (msg.setupComplete) {
+              console.log("✅ SETUP COMPLETO - DESPERTANDO A AOEDE");
+              ref.ready = true;
 
-          // Audio de Gemini → frontend
-          const parts = msg.serverContent?.modelTurn?.parts;
-          if (parts) {
-            parts.forEach((p) => {
-              if (p.inlineData?.data) {
-                process.stdout.write("🔊");
-                if (ws.readyState === ws.OPEN) {
-                  ws.send(JSON.stringify({ type: "audio", audio: p.inlineData.data }));
+              try {
+                await ref.session.send({
+                  clientContent: {
+                    turns: [
+                      {
+                        role: "user",
+                        parts: [{ text: "Hola Aoede, preséntate." }],
+                      },
+                    ],
+                    turnComplete: true,
+                  },
+                });
+
+                console.log("💬 SALUDO ENVIADO");
+              } catch (e) {
+                console.error("❌ Error al despertar:", e?.message || e);
+              }
+
+              return;
+            }
+
+            const parts = msg.serverContent?.modelTurn?.parts;
+            if (parts?.length) {
+              for (const p of parts) {
+                if (p.inlineData?.data) {
+                  process.stdout.write("🔊");
+
+                  if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(
+                      JSON.stringify({
+                        type: "audio",
+                        audio: p.inlineData.data,
+                      })
+                    );
+                  }
                 }
               }
-            });
-          }
-
-          // Turno completo → avisar frontend
-          if (msg.serverContent?.turnComplete) {
-            console.log("\n✅ TURNO COMPLETO");
-            if (ws.readyState === ws.OPEN) {
-              ws.send(JSON.stringify({ type: "turnComplete" }));
             }
+
+            if (msg.serverContent?.turnComplete) {
+              console.log("\n✅ TURNO COMPLETO");
+
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "turnComplete" }));
+              }
+            }
+          } catch (err) {
+            console.error("❌ Error en onmessage Gemini:", err?.message || err);
           }
         },
 
         onclose: (e) => {
-          console.log(`⚪ GOOGLE CERRÓ CONEXIÓN: código ${e.code}, razón: ${e.reason}`);
+          ref.googleClosed = true;
+          console.log(
+            `⚪ GOOGLE CERRÓ CONEXIÓN: código ${e.code}, razón: ${e.reason}`
+          );
+
+          if (!ref.clientClosed && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: `Gemini cerró la sesión (${e.code})`,
+              })
+            );
+            ws.close();
+          }
         },
 
         onerror: (e) => {
           console.error("🔴 ERROR GEMINI:", e);
+
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: "Error en sesión Gemini",
+              })
+            );
+          }
         },
       },
     });
@@ -97,42 +150,90 @@ wss.on("connection", async (ws) => {
     ref.session = session;
     console.log("🔗 SESIÓN GEMINI ESTABLECIDA");
 
-    // Audio del frontend → Gemini
+    // Esto habilita al frontend a esperar señal real del backend
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "readyForUser" }));
+    }
+
+    // Keep alive simple del backend
+    keepAliveInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: "ping" }));
+        } catch {}
+      }
+    }, 15000);
+
     ws.on("message", async (data) => {
       try {
-        const msg = JSON.parse(data.toString());
+        const raw = data.toString();
+        console.log("📥 MENSAJE DESDE FRONTEND:", raw.slice(0, 80));
+
+        const msg = JSON.parse(raw);
+
+        if (msg.type === "audio") {
+          console.log("🎤 AUDIO RECIBIDO DEL NAVEGADOR:", msg.audio?.length || 0);
+        }
 
         if (msg.type === "audio" && ref.session && ref.ready) {
-          // FIXED: sendRealtimeInput en lugar de send()
-          ref.session.sendRealtimeInput({
-            mediaChunks: [
-              {
-                mimeType: "audio/pcm;rate=16000",
-                data: msg.audio,
-              },
-            ],
+          await ref.session.send({
+            realtimeInput: {
+              mediaChunks: [
+                {
+                  mimeType: "audio/pcm;rate=16000",
+                  data: msg.audio,
+                },
+              ],
+            },
           });
         }
       } catch (e) {
-        console.error("❌ Error procesando mensaje del cliente:", e.message);
+        console.error(
+          "❌ Error procesando mensaje del cliente:",
+          e?.message || e
+        );
       }
     });
 
     ws.on("close", () => {
+      ref.clientClosed = true;
       console.log("🔴 CLIENTE DESCONECTADO");
-      if (ref.session) {
+
+      if (keepAliveInterval) {
+        clearInterval(keepAliveInterval);
+        keepAliveInterval = null;
+      }
+
+      if (ref.session && !ref.googleClosed) {
         try {
           ref.session.close();
         } catch (e) {
-          console.error("Error cerrando sesión:", e.message);
+          console.error("❌ Error cerrando sesión Gemini:", e?.message || e);
         }
       }
     });
 
+    ws.on("error", (err) => {
+      console.error("❌ ERROR WS CLIENTE:", err?.message || err);
+    });
   } catch (err) {
-    console.error("❌ ERROR CRÍTICO AL CONECTAR CON GEMINI:", err.message, err);
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "error", message: err.message }));
+    console.error(
+      "❌ ERROR CRÍTICO AL CONECTAR CON GEMINI:",
+      err?.message || err
+    );
+
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          message: err?.message || "No se pudo conectar con Gemini",
+        })
+      );
       ws.close();
     }
   }
