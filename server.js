@@ -60,7 +60,7 @@ wss.on("connection", async (ws) => {
           console.log("🟣 GOOGLE LIVE ABIERTA");
         },
 
-        onmessage: async (msg) => {
+        onmessage: (msg) => {
           try {
             if (msg.setupComplete) {
               console.log("✅ SETUP COMPLETO - DESPERTANDO A AOEDE");
@@ -71,7 +71,6 @@ wss.on("connection", async (ws) => {
               }
 
               try {
-                // En 3.1 Live, texto/audio en conversación se manda por sendRealtimeInput
                 session.sendRealtimeInput({
                   text: "Hola Aoede, preséntate.",
                 });
@@ -156,7 +155,7 @@ wss.on("connection", async (ws) => {
       }
     }, 15000);
 
-    ws.on("message", async (data) => {
+    ws.on("message", (data) => {
       try {
         const raw = data.toString();
         console.log("📥 MENSAJE DESDE FRONTEND:", raw.slice(0, 80));
@@ -168,7 +167,6 @@ wss.on("connection", async (ws) => {
         }
 
         if (msg.type === "audio" && ref.session && ref.ready) {
-          // Método correcto del SDK JS para audio en tiempo real
           ref.session.sendRealtimeInput({
             audio: {
               data: msg.audio,
