@@ -93,6 +93,7 @@ Cuando el entrenamiento termine:
 - di explícitamente: "Hemos terminado la sesión."
 - luego di exactamente en inglés:
 "well done! and See you in the next training"
+- después de despedirte, no continúes hablando
 `;
 }
 
@@ -113,6 +114,29 @@ wss.on("connection", (ws) => {
   let pendingCloseAfterTurn = false;
   let closeTriggered = false;
 
+  function normalizeText(text) {
+    return text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function hasClosingSignal(text) {
+    const normalized = normalizeText(text);
+
+    const signals = [
+      "hemos terminado la sesion",
+      "terminado la sesion",
+      "well done",
+      "see you in the next training",
+      "next training",
+    ];
+
+    return signals.some((signal) => normalized.includes(signal));
+  }
+
   function triggerSessionEnd() {
     if (closeTriggered) return;
     closeTriggered = true;
@@ -129,7 +153,7 @@ wss.on("connection", (ws) => {
           ws.close(1000, "training completed");
         }
       } catch {}
-    }, 500);
+    }, 800);
   }
 
   function startGeminiSession() {
@@ -187,28 +211,15 @@ wss.on("connection", (ws) => {
                 const cleanChunk = transcriptChunk.trim();
                 transcriptBuffer += " " + cleanChunk;
 
-                const normalized = transcriptBuffer
-                  .toLowerCase()
-                  .normalize("NFD")
-                  .replace(/[\u0300-\u036f]/g, "");
+                const normalizedChunk = normalizeText(cleanChunk);
+                const normalizedBuffer = normalizeText(transcriptBuffer);
 
-                console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
-                console.log("🧠 BUFFER:", normalized);
+                console.log("📝 TRANSCRIPCIÓN CHUNK:", cleanChunk);
+                console.log("🧠 BUFFER NORMALIZADO:", normalizedBuffer);
 
-                const closingSignals = [
-                  "hemos terminado la sesion",
-                  "terminado la sesion",
-                  "see you in the next training",
-                  "well done",
-                ];
-
-                const closingDetected = closingSignals.some((signal) =>
-                  normalized.includes(signal)
-                );
-
-                if (closingDetected) {
-                  console.log("🏁 DESPEDIDA DETECTADA");
+                if (hasClosingSignal(normalizedChunk) || hasClosingSignal(normalizedBuffer)) {
                   pendingCloseAfterTurn = true;
+                  console.log("🏁 DESPEDIDA DETECTADA POR TRANSCRIPCIÓN");
                 }
               }
 
@@ -233,21 +244,15 @@ wss.on("connection", (ws) => {
 
               if (msg.serverContent?.turnComplete) {
                 console.log("\n✅ TURNO COMPLETO");
+                console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
 
                 if (ws.readyState === ws.OPEN) {
-                  ws.send(
-                    JSON.stringify({
-                      type: "turnComplete",
-                    })
-                  );
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
                 }
 
                 if (pendingCloseAfterTurn) {
                   pendingCloseAfterTurn = false;
-
-                  setTimeout(() => {
-                    triggerSessionEnd();
-                  }, 900);
+                  triggerSessionEnd();
                 }
 
                 transcriptBuffer = "";
@@ -282,7 +287,6 @@ wss.on("connection", (ws) => {
       })
       .then((s) => {
         session = s;
-
         console.log("🔗 SESIÓN LISTA");
 
         keepAliveInterval = setInterval(() => {
