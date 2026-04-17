@@ -1,36 +1,22 @@
-import http from "http";
-import { WebSocketServer } from "ws";
-import { GoogleGenAI } from "@google/genai";
+// ... (mantenemos las importaciones)
+wss.on("connection", async (ws, req) => {
+  // 🔍 RADAR NUEVO: Ver desde dónde viene la conexión
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  console.log(`🟢 CLIENT CONNECTED desde IP: ${ip}`);
 
-const PORT = process.env.PORT || 8080;
-const server = http.createServer();
-// Aumentamos el timeout del servidor
-const wss = new WebSocketServer({ server, clientTracking: true });
-
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: { apiVersion: 'v1alpha' } 
-});
-
-server.listen(PORT, () => {
-  console.log("🚀 BACKEND READY - MODO ANTI-TIMEOUT");
-});
-
-wss.on("connection", async (ws) => {
-  console.log("🟢 CLIENT CONNECTED");
   let session;
   
-  // MANTENER CONEXIÓN VIVA CON EL NAVEGADOR (Impide el cierre de Cloudflare)
-  const pingInterval = setInterval(() => {
-    if (ws.readyState === 1) ws.ping();
-  }, 20000);
+  // Latido cada 10 segundos para que el Firewall no piense que estamos inactivos
+  const heartBeat = setInterval(() => {
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "heartbeat" }));
+  }, 10000);
 
   try {
     session = await ai.live.connect({
       model: "models/gemini-2.5-flash-native-audio-latest", 
       config: {
         responseModalities: ["AUDIO"],
-        systemInstruction: { parts: [{ text: "Eres Aoede. Responde breve." }] }
+        systemInstruction: { parts: [{ text: "Eres Aoede. Responde siempre en español." }] }
       },
       callbacks: {
         onmessage: (msg) => {
@@ -44,7 +30,7 @@ wss.on("connection", async (ws) => {
             });
           }
         },
-        onclose: () => console.log("⚪ SESIÓN GOOGLE CERRADA")
+        onclose: () => console.log("⚪ GEMINI CERRÓ SESIÓN")
       }
     });
 
@@ -62,7 +48,7 @@ wss.on("connection", async (ws) => {
     });
 
     ws.on("close", () => {
-      clearInterval(pingInterval);
+      clearInterval(heartBeat);
       console.log("🔴 CLIENT DISCONNECTED");
       if (session) session.close();
     });
