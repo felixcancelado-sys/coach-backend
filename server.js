@@ -4,7 +4,8 @@ import { GoogleGenAI } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
 const server = http.createServer();
-const wss = new WebSocketServer({ server });
+// Aumentamos el timeout del servidor
+const wss = new WebSocketServer({ server, clientTracking: true });
 
 const ai = new GoogleGenAI({ 
   apiKey: process.env.GEMINI_API_KEY,
@@ -12,28 +13,27 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log("🚀 BACKEND READY - AOEDE ESPERANDO...");
+  console.log("🚀 BACKEND READY - MODO ANTI-TIMEOUT");
 });
 
 wss.on("connection", async (ws) => {
   console.log("🟢 CLIENT CONNECTED");
   let session;
+  
+  // MANTENER CONEXIÓN VIVA CON EL NAVEGADOR (Impide el cierre de Cloudflare)
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === 1) ws.ping();
+  }, 20000);
 
   try {
     session = await ai.live.connect({
       model: "models/gemini-2.5-flash-native-audio-latest", 
       config: {
         responseModalities: ["AUDIO"],
-        systemInstruction: {
-          parts: [{ text: "Eres Aoede, una coach de inglés amable. Responde siempre en español de forma breve." }]
-        }
+        systemInstruction: { parts: [{ text: "Eres Aoede. Responde breve." }] }
       },
       callbacks: {
         onmessage: (msg) => {
-          if (msg.setupComplete) {
-            console.log("✅ GEMINI LISTO PARA ESCUCHARTE");
-          }
-
           const parts = msg.serverContent?.modelTurn?.parts;
           if (parts) {
             parts.forEach(p => {
@@ -44,33 +44,30 @@ wss.on("connection", async (ws) => {
             });
           }
         },
-        onerror: (e) => console.log("🔴 ERROR:", e),
-        onclose: () => console.log("⚪ SESIÓN CERRADA")
+        onclose: () => console.log("⚪ SESIÓN GOOGLE CERRADA")
       }
     });
+
+    console.log("✅ GEMINI LISTO");
 
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === "audio" && session) {
-          // Si el audio viene del frontend viejo (Array) o nuevo (Base64)
-          let base64 = typeof msg.audio === "string" 
-            ? msg.audio 
-            : Buffer.from(new Int16Array(msg.audio).buffer).toString("base64");
-          
           await session.send({ 
-            realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: base64 }] } 
+            realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: msg.audio }] } 
           });
         }
       } catch (e) {}
     });
 
     ws.on("close", () => {
+      clearInterval(pingInterval);
       console.log("🔴 CLIENT DISCONNECTED");
       if (session) session.close();
     });
 
   } catch (err) {
-    console.error("❌ ERROR AL INICIAR:", err.message);
+    console.error("❌ ERROR:", err.message);
   }
 });
