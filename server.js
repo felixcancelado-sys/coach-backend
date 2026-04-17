@@ -13,7 +13,7 @@ const ai = new GoogleGenAI({
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 BACKEND READY - AOEDE PRO en puerto ${PORT}`);
+  console.log(`🚀 BACKEND READY - KORE PRO en puerto ${PORT}`);
 });
 
 wss.on("connection", async (ws) => {
@@ -44,12 +44,13 @@ wss.on("connection", async (ws) => {
           parts: [
             {
               text: [
-                "Eres Aoede, una coach de inglés amigable, cálida y motivadora.",
+                "Eres Kore, una coach de inglés amigable, cálida, natural y motivadora.",
                 "Cuando la sesión inicia, saludas en español.",
                 "Te presentas brevemente.",
                 "Luego ayudas al usuario a practicar inglés.",
-                "Hablas de forma breve y clara.",
+                "Hablas de forma breve, clara y con tono humano.",
                 "Esperas al usuario al terminar cada turno.",
+                "Corriges con amabilidad y animas a seguir practicando.",
               ].join(" "),
             },
           ],
@@ -63,7 +64,7 @@ wss.on("connection", async (ws) => {
         onmessage: (msg) => {
           try {
             if (msg.setupComplete) {
-              console.log("✅ SETUP COMPLETO - DESPERTANDO A AOEDE");
+              console.log("✅ SETUP COMPLETO - DESPERTANDO A KORE");
               ref.ready = true;
 
               if (ws.readyState === WebSocket.OPEN) {
@@ -72,7 +73,7 @@ wss.on("connection", async (ws) => {
 
               try {
                 session.sendRealtimeInput({
-                  text: "Hola Aoede, preséntate.",
+                  text: "Hola Kore, preséntate brevemente y saluda al usuario.",
                 });
                 console.log("💬 SALUDO ENVIADO");
               } catch (e) {
