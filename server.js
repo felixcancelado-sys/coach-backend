@@ -20,22 +20,23 @@ function buildSystemInstruction(topic) {
 TEMA DE ESTA SESIÓN:
 Debes trabajar únicamente estas frases, una por una:
 
-- Good morning
-- say good bye
-- Take the pencil
-- take your implements
-- go to the bathroom
-- go to your bedroom
-- Brush your teeth
-- wash your hands
-- Clean up your table
-- clean up your room
-- Clean your nose
-- Comb your hair
+Good morning
+say good bye
+Take the pencil
+take your implements
+go to the bathroom
+go to your bedroom
+Brush your teeth
+wash your hands
+Clean up your table
+clean up your room
+Clean your nose
+Comb your hair
 
-Debes modelar la pronunciación de cada frase.
-Debes pedir repetición usando siempre: "repeat after me"
-Debes corregir con entusiasmo y cariño.
+Antes de cada frase debes decir:
+repeat after me
+
+Corrige con entusiasmo y cariño.
 `;
   }
 
@@ -44,260 +45,235 @@ Debes corregir con entusiasmo y cariño.
 TEMA DE ESTA SESIÓN:
 Debes trabajar únicamente estas palabras, una por una:
 
-- Circle
-- Triangle
-- Square
-- rectangle
+Circle
+Triangle
+Square
+Rectangle
 
-Debes:
-- modelar palabras y frases clave en inglés
-- pedir repetición usando siempre: "repeat after me"
-- corregir con entusiasmo
-- mantenerte enfocada en vocabulario y pronunciación
+Antes de cada palabra debes decir:
+repeat after me
+
+Corrige con entusiasmo.
 `;
   }
 
   return `
-Eres una Coach experta de "My Team Bilingual Process". Presentate como coach. Tu objetivo es entrenar al usuario en la pronunciación de inglés.
+Eres una Coach experta de My Team Bilingual Process.
 
-REGLAS GENERALES:
-- Habla SIEMPRE en ESPAÑOL.
-- Pregunta el nombre del estudiante.
-- Usa género femenino o masculino según el nombre.
-- Solo usa el INGLÉS para modelar las palabras o frases que el usuario debe repetir.
-- Antes de pedirle al usuario que repita una palabra o frase, di siempre: "repeat after me".
-- Sé extremadamente positiva, energética y motivadora.
-- No ofrezcas opciones.
-- No cambies de tema.
-- Mantén la sesión enfocada solo en el tema asignado.
+OBJETIVO:
+Entrenar pronunciación en inglés.
 
-FLUJO DE INICIO:
-- Saluda con entusiasmo y dale la bienvenida a My Team.
-- Preséntate diciendo: "Hola, soy tu coach de My Team Proceso de Bilinguismo."
-- Pregunta el nombre del estudiante y espera a que responda.
-- Una vez sepas su nombre, detecta si es hombre o mujer y dile "Bienvenido" o "Bienvenida" según corresponda.
-- Inmediatamente después, comienza con el entrenamiento del tema asignado.
+REGLAS:
+Hablas SIEMPRE en español.
+Usas inglés solo para modelar pronunciación.
+Eres positiva, energética y motivadora.
+No ofreces opciones.
+No cambias de tema.
+
+FLUJO:
+1 Saluda con entusiasmo.
+2 Preséntate como coach My Team.
+3 Pregunta el nombre del estudiante.
+4 Usa Bienvenido o Bienvenida según corresponda.
+5 Comienza inmediatamente el entrenamiento.
 
 ${topicInstructions}
 
 CIERRE:
-- Cuando el usuario haya completado con éxito el tema asignado, felicítalo con mucho cariño por su gran progreso en su Bilingual Process.
-- Al final de tu despedida, debes decir obligatoriamente en inglés:
-"well done! and See you in the next training"
+Felicita al estudiante.
+Termina diciendo exactamente:
+well done! and See you in the next training
 `;
 }
 
 server.listen(PORT, () => {
-  console.log(`🚀 BACKEND READY - KORE PRO en puerto ${PORT}`);
+  console.log(`🚀 BACKEND PRO READY en puerto ${PORT}`);
 });
 
-wss.on("connection", async (ws) => {
+wss.on("connection", (ws) => {
   console.log("🟢 CLIENTE CONECTADO");
 
-  const ref = {
-    session: null,
-    ready: false,
-    clientClosed: false,
-    googleClosed: false,
-    topic: "Frases de la semana",
-    studentName: "",
-  };
-
+  let session = null;
+  let topic = "Frases de la semana";
+  let ready = false;
+  let googleClosed = false;
   let keepAliveInterval = null;
 
-  try {
-    const session = await ai.live.connect({
-      model: "gemini-3.1-flash-live-preview",
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: "Kore",
+  function startGeminiSession() {
+    console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
+
+    ai.live
+      .connect({
+        model: "gemini-3.1-flash-live-preview",
+
+        config: {
+          responseModalities: [Modality.AUDIO],
+
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: "Kore",
+              },
             },
           },
-        },
-        systemInstruction: {
-          parts: [
-            {
-              text: buildSystemInstruction(ref.topic),
-            },
-          ],
-        },
-      },
-      callbacks: {
-        onopen: () => {
-          console.log("🟣 GOOGLE LIVE ABIERTA");
+
+          systemInstruction: {
+            parts: [
+              {
+                text: buildSystemInstruction(topic),
+              },
+            ],
+          },
         },
 
-        onmessage: (msg) => {
-          try {
-            if (msg.setupComplete) {
-              console.log("✅ SETUP COMPLETO - DESPERTANDO A KORE");
-              ref.ready = true;
+        callbacks: {
+          onopen: () => {
+            console.log("🟣 GOOGLE LIVE ABIERTA");
+          },
 
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "readyForUser" }));
-              }
+          onmessage: (msg) => {
+            try {
+              if (msg.setupComplete) {
+                console.log("✅ SETUP COMPLETO");
 
-              try {
+                ready = true;
+
+                ws.send(
+                  JSON.stringify({
+                    type: "readyForUser",
+                  })
+                );
+
                 session.sendRealtimeInput({
-                  text: `Inicia la sesión ahora. Preséntate como coach de My Team, pregunta el nombre del estudiante y comienza inmediatamente con el tema: ${ref.topic}.`,
+                  text:
+                    "Preséntate como coach My Team, pregunta el nombre del estudiante y comienza el entrenamiento.",
                 });
-                console.log("💬 SALUDO ENVIADO");
-              } catch (e) {
-                console.error("❌ Error al despertar:", e?.message || e);
+
+                console.log("💬 COACH INICIADA");
+
+                return;
               }
 
-              return;
-            }
+              const parts = msg.serverContent?.modelTurn?.parts;
 
-            const parts = msg.serverContent?.modelTurn?.parts;
-            if (parts?.length) {
-              for (const p of parts) {
-                if (p.inlineData?.data) {
-                  process.stdout.write("🔊");
+              if (parts) {
+                parts.forEach((p) => {
+                  if (p.inlineData?.data) {
+                    process.stdout.write("🔊");
 
-                  if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(
-                      JSON.stringify({
-                        type: "audio",
-                        audio: p.inlineData.data,
-                      })
-                    );
+                    if (ws.readyState === WebSocket.OPEN) {
+                      ws.send(
+                        JSON.stringify({
+                          type: "audio",
+                          audio: p.inlineData.data,
+                        })
+                      );
+                    }
                   }
-                }
+                });
               }
-            }
 
-            if (msg.serverContent?.turnComplete) {
-              console.log("\n✅ TURNO COMPLETO");
+              if (msg.serverContent?.turnComplete) {
+                console.log("\n✅ TURNO COMPLETO");
 
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "turnComplete" }));
+                ws.send(
+                  JSON.stringify({
+                    type: "turnComplete",
+                  })
+                );
               }
+            } catch (err) {
+              console.error("❌ ERROR MENSAJE GEMINI:", err);
             }
-          } catch (err) {
-            console.error("❌ Error en onmessage Gemini:", err?.message || err);
-          }
-        },
+          },
 
-        onclose: (e) => {
-          ref.googleClosed = true;
-          console.log(
-            `⚪ GOOGLE CERRÓ CONEXIÓN: código ${e.code}, razón: ${e.reason}`
-          );
+          onclose: (e) => {
+            googleClosed = true;
 
-          if (!ref.clientClosed && ws.readyState === WebSocket.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: `Gemini cerró la sesión (${e.code})`,
-              })
+            console.log(
+              `⚪ GOOGLE CERRÓ: ${e.code}`
             );
+
             ws.close();
-          }
-        },
+          },
 
-        onerror: (e) => {
-          console.error("🔴 ERROR GEMINI:", e);
+          onerror: (err) => {
+            console.error("🔴 ERROR GEMINI:", err);
 
-          if (ws.readyState === WebSocket.OPEN) {
             ws.send(
               JSON.stringify({
                 type: "error",
-                message: "Error en sesión Gemini",
+                message: "error gemini",
               })
             );
-          }
+          },
         },
-      },
-    });
+      })
+      .then((s) => {
+        session = s;
 
-    ref.session = session;
-    console.log("🔗 SESIÓN GEMINI ESTABLECIDA");
+        console.log("🔗 SESIÓN LISTA");
 
-    keepAliveInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type: "ping" }));
-        } catch {}
-      }
-    }, 15000);
+        keepAliveInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "ping" }));
+          }
+        }, 15000);
+      })
+      .catch((err) => {
+        console.error("❌ ERROR INICIANDO GEMINI:", err);
 
-    ws.on("message", (data) => {
-      try {
-        const raw = data.toString();
-        console.log("📥 MENSAJE DESDE FRONTEND:", raw.slice(0, 120));
-
-        const msg = JSON.parse(raw);
-
-        if (msg.type === "startSession") {
-          ref.topic = msg.topic || "Frases de la semana";
-          console.log("📚 TEMA SELECCIONADO:", ref.topic);
-          return;
-        }
-
-        if (msg.type === "audio") {
-          console.log("🎤 AUDIO RECIBIDO DEL NAVEGADOR:", msg.audio?.length || 0);
-        }
-
-        if (msg.type === "audio" && ref.session && ref.ready) {
-          ref.session.sendRealtimeInput({
-            audio: {
-              data: msg.audio,
-              mimeType: "audio/pcm;rate=16000",
-            },
-          });
-        }
-      } catch (e) {
-        console.error(
-          "❌ Error procesando mensaje del cliente:",
-          e?.message || e
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: "no se pudo iniciar gemini",
+          })
         );
+      });
+  }
+
+  ws.on("message", (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+
+      if (msg.type === "startSession") {
+        topic = msg.topic;
+
+        console.log("📚 TEMA RECIBIDO:", topic);
+
+        startGeminiSession();
+
+        return;
       }
-    });
 
-    ws.on("close", () => {
-      ref.clientClosed = true;
-      console.log("🔴 CLIENTE DESCONECTADO");
+      if (msg.type === "audio") {
+        if (!session || !ready) return;
 
-      if (keepAliveInterval) {
-        clearInterval(keepAliveInterval);
-        keepAliveInterval = null;
+        session.sendRealtimeInput({
+          audio: {
+            data: msg.audio,
+            mimeType: "audio/pcm;rate=16000",
+          },
+        });
+
+        return;
       }
+    } catch (err) {
+      console.error("❌ ERROR CLIENT MESSAGE:", err);
+    }
+  });
 
-      if (ref.session && !ref.googleClosed) {
-        try {
-          ref.session.close();
-        } catch (e) {
-          console.error("❌ Error cerrando sesión Gemini:", e?.message || e);
-        }
-      }
-    });
-
-    ws.on("error", (err) => {
-      console.error("❌ ERROR WS CLIENTE:", err?.message || err);
-    });
-  } catch (err) {
-    console.error(
-      "❌ ERROR CRÍTICO AL CONECTAR CON GEMINI:",
-      err?.message || err
-    );
+  ws.on("close", () => {
+    console.log("🔴 CLIENTE DESCONECTADO");
 
     if (keepAliveInterval) {
       clearInterval(keepAliveInterval);
-      keepAliveInterval = null;
     }
 
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          message: err?.message || "No se pudo conectar con Gemini",
-        })
-      );
-      ws.close();
+    if (session && !googleClosed) {
+      try {
+        session.close();
+      } catch {}
     }
-  }
+  });
 });
