@@ -4,145 +4,336 @@ import { GoogleGenAI, Modality } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY
-});
-
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: { apiVersion: "v1beta" },
+});
+
+function fallbackItemsForTopic(topic) {
+  if (topic === "Frases de la semana") {
+    return ["Good morning"];
+  }
+
+  if (topic === "Práctica de vocabulario de My Book") {
+    return ["Circle", "Square", "Triangle", "Rectangle"];
+  }
+
+  return ["Good morning"];
+}
+
+function buildPrompt(topic, items) {
+  const safeItems =
+    Array.isArray(items) && items.length > 0
+      ? items
+      : fallbackItemsForTopic(topic);
+
+  const contentList = safeItems.map((item) => `- ${item}`).join("\n");
+
+  return `
+Eres la Coach oficial de My Team Bilingual Process.
+
+OBJETIVO:
+Entrenar pronunciación en inglés.
+
+REGLAS GENERALES:
+- Hablas SIEMPRE en español.
+- SOLO usas inglés para pronunciar o modelar la palabra o frase objetivo.
+- Das instrucciones en español.
+- Das retroalimentación en español.
+- Eres cálida, motivadora, positiva y exigente.
+- No cambias de tema.
+- No agregas palabras o frases fuera de la lista.
+- No avances automáticamente sin escuchar al estudiante.
+
+MODO DE ENTRENAMIENTO:
+- Trabajas UN ítem por vez.
+- Antes de cada ítem dices exactamente: "repeat after me".
+- Luego pronuncias la palabra o frase en inglés.
+- Después te callas y esperas al estudiante.
+- Escuchas el intento del estudiante.
+- Das feedback breve en español sobre su pronunciación y das recomendaciones. Cuando consideres que es aceptable sigues con el siguiente ítem.
+- Solo después continúas con el siguiente ítem.
+
+TEMA ACTUAL:
+${topic}
+
+LISTA OFICIAL DE ESTA SESIÓN:
+${contentList}
+
+IMPORTANTE:
+- Debes practicar SOLO esta lista.
+- Si el estudiante pronuncia mal, corrígelo amablemente en español.
+- Si está aceptable, felicítalo brevemente en español y continúa.
+- Nunca hables todo el tiempo en inglés.
+
+INICIO:
+- Saluda en español.
+- Preséntate como la Coach de My Team Bilingual Process.
+- Pregunta el nombre del estudiante en español.
+- Espera su respuesta.
+- Luego empieza el entrenamiento.
+
+CIERRE:
+Cuando termines TODA la lista, debes cerrar SIEMPRE diciendo esta frase exacta al final:
+"Well done and see you in the next training"
+
+Esa debe ser tu última frase.
+Después no sigues hablando.
+`;
+}
+
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectFinalClosing(text) {
+  const normalized = normalizeText(text);
+  return normalized.includes("see you in the next training");
+}
 
 server.listen(PORT, () => {
   console.log("backend ready");
 });
 
+wss.on("connection", (ws) => {
+  console.log("🟢 CLIENTE CONECTADO");
 
-function buildPrompt(topic, items){
+  let session = null;
+  let ready = false;
+  let topic = "Frases de la semana";
+  let items = fallbackItemsForTopic(topic);
 
-return `
+  let transcriptBuffer = "";
+  let pendingCloseAfterTurn = false;
+  let closeTriggered = false;
+  let keepAliveInterval = null;
+  let googleClosed = false;
 
-Eres la Coach oficial de My Team.
+  function triggerSessionEnd() {
+    if (closeTriggered) return;
+    closeTriggered = true;
 
-Tu tarea es entrenar pronunciación.
+    console.log("🏁 CERRANDO SESIÓN");
 
-Reglas:
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: "sessionEnded" }));
+    }
 
-Siempre dices:
-repeat after me
+    setTimeout(() => {
+      try {
+        if (ws.readyState === ws.OPEN) {
+          ws.close(1000, "training completed");
+        }
+      } catch {}
+    }, 700);
+  }
 
-Luego dices la palabra.
+  function startGeminiSession() {
+    console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
+    console.log("📚 ITEMS:", items);
 
-Luego esperas al estudiante.
+    ai.live
+      .connect({
+        model: "gemini-3.1-flash-live-preview",
+        config: {
+          responseModalities: [Modality.AUDIO],
+          outputAudioTranscription: {},
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: "Kore",
+              },
+            },
+          },
+          systemInstruction: {
+            parts: [
+              {
+                text: buildPrompt(topic, items),
+              },
+            ],
+          },
+        },
+        callbacks: {
+          onopen: () => {
+            console.log("🟣 GOOGLE LIVE ABIERTA");
+          },
 
-No avanzas hasta que el estudiante intente.
+          onmessage: (msg) => {
+            try {
+              if (msg.setupComplete) {
+                ready = true;
+                console.log("✅ SETUP COMPLETO");
 
-Das feedback breve.
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: "readyForUser" }));
+                }
 
-Trabajas SOLO esta lista:
+                session.sendRealtimeInput({
+                  text:
+                    "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
+                });
 
-${items.join("\n")}
+                console.log("💬 COACH INICIADA");
+                return;
+              }
 
-Cuando termines TODA la lista debes decir EXACTAMENTE:
+              const transcriptChunk = msg.outputTranscription?.text;
 
-see you in the next training
+              if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
+                const cleanChunk = transcriptChunk.trim();
+                transcriptBuffer += " " + cleanChunk;
 
-Esa debe ser tu última frase.
+                const normalizedBuffer = normalizeText(transcriptBuffer);
 
-`;
+                console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
 
-}
+                if (detectFinalClosing(normalizedBuffer)) {
+                  pendingCloseAfterTurn = true;
+                  console.log("🏁 FRASE FINAL DETECTADA");
+                }
+              }
 
+              const parts = msg.serverContent?.modelTurn?.parts;
 
-wss.on("connection", ws=>{
+              if (parts?.length) {
+                for (const p of parts) {
+                  if (p.inlineData?.data) {
+                    process.stdout.write("🔊");
 
-let session=null;
-let ready=false;
+                    if (ws.readyState === ws.OPEN) {
+                      ws.send(
+                        JSON.stringify({
+                          type: "audio",
+                          audio: p.inlineData.data,
+                        })
+                      );
+                    }
+                  }
+                }
+              }
 
-ws.on("message", async raw=>{
+              if (msg.serverContent?.turnComplete) {
+                console.log("\n✅ TURNO COMPLETO");
+                console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
 
-const msg = JSON.parse(raw);
+                if (pendingCloseAfterTurn) {
+                  pendingCloseAfterTurn = false;
+                  triggerSessionEnd();
+                  return;
+                }
 
-if(msg.type==="startSession"){
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
+                }
 
-const topic=msg.topic;
-const items=msg.items;
+                transcriptBuffer = "";
+              }
+            } catch (err) {
+              console.error("❌ ERROR MENSAJE:", err);
+            }
+          },
 
-session = await ai.live.connect({
+          onclose: (e) => {
+            googleClosed = true;
+            console.log(`⚪ GOOGLE CERRÓ: ${e.code}`);
 
-model:"gemini-3.1-flash-live-preview",
+            if (ws.readyState === ws.OPEN) {
+              ws.close();
+            }
+          },
 
-config:{
-responseModalities:[Modality.AUDIO],
-speechConfig:{
-voiceConfig:{
-prebuiltVoiceConfig:{ voiceName:"Kore"}
-}
-},
-systemInstruction:{
-parts:[{
-text: buildPrompt(topic,items)
-}]
-}
-},
+          onerror: (err) => {
+            console.error("🔴 ERROR GEMINI:", err);
 
-callbacks:{
+            if (ws.readyState === ws.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "error gemini",
+                })
+              );
+            }
+          },
+        },
+      })
+      .then((s) => {
+        session = s;
+        console.log("🔗 SESIÓN LISTA");
 
-onmessage(ev){
+        keepAliveInterval = setInterval(() => {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: "ping" }));
+          }
+        }, 15000);
+      })
+      .catch((err) => {
+        console.error("❌ ERROR INICIANDO:", err);
 
-const parts = ev.serverContent?.modelTurn?.parts;
+        if (ws.readyState === ws.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: "no se pudo iniciar gemini",
+            })
+          );
+        }
+      });
+  }
 
-if(parts){
+  ws.on("message", (raw) => {
+    try {
+      const msg = JSON.parse(raw.toString());
 
-parts.forEach(p=>{
+      if (msg.type === "startSession") {
+        topic = msg.topic || "Frases de la semana";
+        items =
+          Array.isArray(msg.items) && msg.items.length > 0
+            ? msg.items
+            : fallbackItemsForTopic(topic);
 
-if(p.inlineData?.data){
+        console.log("📚 TEMA RECIBIDO:", topic);
+        console.log("🧾 ITEMS RECIBIDOS:", items);
 
-ws.send(JSON.stringify({
-type:"audio",
-audio:p.inlineData.data
-}));
+        startGeminiSession();
+        return;
+      }
 
-}
+      if (msg.type === "audio") {
+        if (!ready || !session) return;
 
-});
+        session.sendRealtimeInput({
+          audio: {
+            data: msg.audio,
+            mimeType: "audio/pcm;rate=16000",
+          },
+        });
+      }
+    } catch (err) {
+      console.error("❌ ERROR CLIENT MESSAGE:", err);
+    }
+  });
 
-}
+  ws.on("close", () => {
+    console.log("🔴 CLIENT CLOSED");
 
-if(ev.serverContent?.turnComplete){
+    if (keepAliveInterval) {
+      clearInterval(keepAliveInterval);
+      keepAliveInterval = null;
+    }
 
-ws.send(JSON.stringify({
-type:"turnComplete"
-}));
-
-}
-
-}
-
-}
-
-});
-
-ready=true;
-
-session.sendRealtimeInput({
-text:"saluda y comienza"
-});
-
-}
-
-
-if(msg.type==="audio" && ready){
-
-session.sendRealtimeInput({
-
-audio:{
-data:msg.audio,
-mimeType:"audio/pcm;rate=16000"
-}
-
-});
-
-}
-
-});
-
+    if (session && !googleClosed) {
+      try {
+        session.close();
+      } catch {}
+    }
+  });
 });
