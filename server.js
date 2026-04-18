@@ -35,7 +35,7 @@ Comb your hair
 
 REGLAS ESPECÍFICAS:
 - Solo puedes trabajar estas frases.
-- No puedes agregar palabras nuevas.
+- No puedes introducir palabras nuevas.
 - No puedes introducir frases adicionales.
 - Antes de cada frase debes decir exactamente: "repeat after me".
 - Luego modelas la frase en inglés.
@@ -104,12 +104,27 @@ ${topicInstructions}
 CIERRE:
 Cuando el entrenamiento termine:
 - despídete con cariño
-- di explícitamente esta frase exacta en español:
-"Hemos terminado la sesión."
-- luego di exactamente esta frase en inglés:
-"well done! and See you in the next training"
-- después de eso no continúes hablando.
+- di en español: "Hemos terminado la sesión."
+- después di EXACTAMENTE esta frase final en inglés:
+"see you in the next training"
+- esa debe ser tu última frase
+- después de decir esa frase final, no continúes hablando
 `;
+}
+
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectFinalClosing(text) {
+  const normalized = normalizeText(text);
+  return normalized.includes("see you in the next training");
 }
 
 server.listen(PORT, () => {
@@ -129,29 +144,6 @@ wss.on("connection", (ws) => {
   let pendingCloseAfterTurn = false;
   let closeTriggered = false;
 
-  function normalizeText(text) {
-    return text
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function detectClosing(text) {
-    const normalized = normalizeText(text);
-
-    const strongSignals = [
-      "hemos terminado la sesion",
-      "well done and see you in the next training",
-      "well done see you in the next training",
-      "see you in the next training",
-    ];
-
-    return strongSignals.some((signal) => normalized.includes(signal));
-  }
-
   function triggerSessionEnd() {
     if (closeTriggered) return;
     closeTriggered = true;
@@ -168,7 +160,7 @@ wss.on("connection", (ws) => {
           ws.close(1000, "training completed");
         }
       } catch {}
-    }, 700);
+    }, 500);
   }
 
   function startGeminiSession() {
@@ -204,7 +196,6 @@ wss.on("connection", (ws) => {
             try {
               if (msg.setupComplete) {
                 console.log("✅ SETUP COMPLETO");
-
                 ready = true;
 
                 if (ws.readyState === ws.OPEN) {
@@ -231,9 +222,9 @@ wss.on("connection", (ws) => {
                 console.log("📝 TRANSCRIPCIÓN CHUNK:", cleanChunk);
                 console.log("🧠 BUFFER:", normalizedBuffer);
 
-                if (detectClosing(normalizedBuffer)) {
+                if (detectFinalClosing(normalizedBuffer)) {
                   pendingCloseAfterTurn = true;
-                  console.log("🏁 DESPEDIDA DETECTADA");
+                  console.log("🏁 FRASE FINAL DETECTADA");
                 }
               }
 
@@ -260,13 +251,14 @@ wss.on("connection", (ws) => {
                 console.log("\n✅ TURNO COMPLETO");
                 console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
 
-                if (ws.readyState === ws.OPEN) {
-                  ws.send(JSON.stringify({ type: "turnComplete" }));
-                }
-
                 if (pendingCloseAfterTurn) {
                   pendingCloseAfterTurn = false;
                   triggerSessionEnd();
+                  return;
+                }
+
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
                 }
 
                 transcriptBuffer = "";
