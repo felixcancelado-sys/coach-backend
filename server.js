@@ -152,7 +152,7 @@ wss.on("connection", (ws) => {
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
-                voiceName: "Leda",
+                voiceName: "Kore",
               },
             },
           },
