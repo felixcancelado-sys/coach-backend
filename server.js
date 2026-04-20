@@ -54,7 +54,8 @@ MODO DE ENTRENAMIENTO:
 - Luego pronuncias la palabra o frase en inglés.
 - Después te callas y esperas al estudiante.
 - Escuchas el intento del estudiante.
-- Das feedback breve en español sobre su pronunciación y das recomendaciones. Cuando consideres que es aceptable sigues con el siguiente ítem.
+- Das feedback breve en español sobre su pronunciación y das recomendaciones.
+- Cuando consideres que la pronunciación es aceptable, sigues con el siguiente ítem.
 - No avances al siguiente ítem si la pronunciación sigue claramente incorrecta.
 - Si la pronunciación no es suficientemente clara, pide repetir el mismo ítem antes de continuar.
 - Solo después continúas con el siguiente ítem.
@@ -68,12 +69,16 @@ ${contentList}
 IMPORTANTE:
 - Debes practicar SOLO esta lista.
 - Si el estudiante pronuncia mal, corrígelo amablemente en español.
+- No digas "vamos a darle" o "vamos con toda".
 - Si está aceptable, felicítalo brevemente en español y continúa.
 - Nunca hables todo el tiempo en inglés.
+- No inventes más ejercicios.
+- No agregues más palabras o frases al final.
 
 INICIO:
 - Saluda en español.
-- No digas "vamos a darle" o "vamos con toda". Siempre empezar con: empecemos nuestro entrenamiento de hoy y juguemos a imitar
+- No digas "vamos a darle" o "vamos con toda".
+- Siempre empieza con: empecemos nuestro entrenamiento de hoy y juguemos a imitar
 - Preséntate como la Coach de My Team Bilingual Process.
 - Pregunta el nombre del estudiante en español.
 - Espera su respuesta.
@@ -89,7 +94,7 @@ Después no sigues hablando.
 }
 
 function normalizeText(text) {
-  return text
+  return String(text || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -100,7 +105,11 @@ function normalizeText(text) {
 
 function detectFinalClosing(text) {
   const normalized = normalizeText(text);
-  return normalized.includes("see you in the next training");
+
+  return (
+    normalized.includes("well done and see you in the next training") ||
+    normalized.includes("see you in the next training")
+  );
 }
 
 server.listen(PORT, () => {
@@ -120,15 +129,22 @@ wss.on("connection", (ws) => {
   let closeTriggered = false;
   let keepAliveInterval = null;
   let googleClosed = false;
+  let initialInstructionSent = false;
 
   function triggerSessionEnd() {
     if (closeTriggered) return;
+
     closeTriggered = true;
+    pendingCloseAfterTurn = false;
 
     console.log("🏁 CERRANDO SESIÓN");
 
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "sessionEnded" }));
+      ws.send(
+        JSON.stringify({
+          type: "sessionEnded",
+        })
+      );
     }
 
     setTimeout(() => {
@@ -137,12 +153,33 @@ wss.on("connection", (ws) => {
           ws.close(1000, "training completed");
         }
       } catch {}
-    }, 700);
+    }, 900);
+  }
+
+  function sendInitialInstructionIfReady() {
+    if (initialInstructionSent) return;
+    if (!ready || !session) return;
+
+    initialInstructionSent = true;
+
+    session.sendRealtimeInput({
+      text:
+        "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
+    });
+
+    console.log("💬 COACH INICIADA");
   }
 
   function startGeminiSession() {
     console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
     console.log("📚 ITEMS:", items);
+
+    ready = false;
+    transcriptBuffer = "";
+    pendingCloseAfterTurn = false;
+    closeTriggered = false;
+    googleClosed = false;
+    initialInstructionSent = false;
 
     ai.live
       .connect({
@@ -180,12 +217,7 @@ wss.on("connection", (ws) => {
                   ws.send(JSON.stringify({ type: "readyForUser" }));
                 }
 
-                session.sendRealtimeInput({
-                  text:
-                    "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
-                });
-
-                console.log("💬 COACH INICIADA");
+                sendInitialInstructionIfReady();
                 return;
               }
 
@@ -195,11 +227,9 @@ wss.on("connection", (ws) => {
                 const cleanChunk = transcriptChunk.trim();
                 transcriptBuffer += " " + cleanChunk;
 
-                const normalizedBuffer = normalizeText(transcriptBuffer);
-
                 console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
 
-                if (detectFinalClosing(normalizedBuffer)) {
+                if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
                   console.log("🏁 FRASE FINAL DETECTADA");
                 }
@@ -229,16 +259,15 @@ wss.on("connection", (ws) => {
                 console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
 
                 if (pendingCloseAfterTurn) {
-                  pendingCloseAfterTurn = false;
                   triggerSessionEnd();
                   return;
                 }
 
+                transcriptBuffer = "";
+
                 if (ws.readyState === ws.OPEN) {
                   ws.send(JSON.stringify({ type: "turnComplete" }));
                 }
-
-                transcriptBuffer = "";
               }
             } catch (err) {
               console.error("❌ ERROR MENSAJE:", err);
@@ -248,6 +277,11 @@ wss.on("connection", (ws) => {
           onclose: (e) => {
             googleClosed = true;
             console.log(`⚪ GOOGLE CERRÓ: ${e.code}`);
+
+            if (pendingCloseAfterTurn && !closeTriggered) {
+              triggerSessionEnd();
+              return;
+            }
 
             if (ws.readyState === ws.OPEN) {
               ws.close();
@@ -271,6 +305,8 @@ wss.on("connection", (ws) => {
       .then((s) => {
         session = s;
         console.log("🔗 SESIÓN LISTA");
+
+        sendInitialInstructionIfReady();
 
         keepAliveInterval = setInterval(() => {
           if (ws.readyState === ws.OPEN) {
@@ -298,6 +334,7 @@ wss.on("connection", (ws) => {
 
       if (msg.type === "startSession") {
         topic = msg.topic || "Frases de la semana";
+
         items =
           Array.isArray(msg.items) && msg.items.length > 0
             ? msg.items
@@ -312,6 +349,7 @@ wss.on("connection", (ws) => {
 
       if (msg.type === "audio") {
         if (!ready || !session) return;
+        if (closeTriggered) return;
 
         session.sendRealtimeInput({
           audio: {
@@ -338,5 +376,8 @@ wss.on("connection", (ws) => {
         session.close();
       } catch {}
     }
+
+    session = null;
+    ready = false;
   });
 });
