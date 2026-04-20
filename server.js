@@ -98,6 +98,7 @@ wss.on("connection", (ws) => {
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
   let currentIndex = 0; // 🔥 control real de ítem actual
+  let greetingFinished = false; // 🔥 nuevo
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
@@ -131,19 +132,29 @@ wss.on("connection", (ws) => {
     }, 900);
   }
 
-  function sendInitialInstructionIfReady() {
-    if (initialInstructionSent) return;
-    if (!ready || !session) return;
+ function sendInitialInstructionIfReady() {
+  if (initialInstructionSent) return;
+  if (!ready || !session) return;
 
-    initialInstructionSent = true;
+  initialInstructionSent = true;
 
-    session.sendRealtimeInput({
-      text:
-        "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
-    });
+  session.sendRealtimeInput({
+    text:
+      "Saluda en español, preséntate como la Coach de My Team y pregunta el nombre del estudiante. Luego espera instrucciones del sistema.",
+  });
 
-    console.log("💬 COACH INICIADA");
-  }
+  console.log("💬 COACH INICIADA");
+}
+  function sendNextWord() {
+  if (!session) return;
+
+  const nextWord = items[currentIndex];
+  if (!nextWord) return;
+
+  session.sendRealtimeInput({
+    text: `Di exactamente: "repeat after me", luego pronuncia claramente la palabra ${nextWord} y después guarda silencio.`,
+  });
+}
 
   function startGeminiSession() {
     console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
@@ -253,20 +264,26 @@ if (expected && studentSaid.includes(expected)) {
               }
 
               if (msg.serverContent?.turnComplete) {
-                console.log("\n✅ TURNO COMPLETO");
-                console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
+  console.log("\n✅ TURNO COMPLETO");
+  console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
 
-                if (pendingCloseAfterTurn) {
-                  triggerSessionEnd();
-                  return;
-                }
+  if (pendingCloseAfterTurn) {
+    triggerSessionEnd();
+    return;
+  }
 
-                transcriptBuffer = "";
+  // 🔥 Solo después del saludo enviamos la primera palabra
+  if (!greetingFinished) {
+    greetingFinished = true;
+    sendNextWord();
+  }
 
-                if (ws.readyState === ws.OPEN) {
-                  ws.send(JSON.stringify({ type: "turnComplete" }));
-                }
-              }
+  transcriptBuffer = "";
+
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify({ type: "turnComplete" }));
+  }
+}
             } catch (err) {
               console.error("❌ ERROR MENSAJE:", err);
             }
