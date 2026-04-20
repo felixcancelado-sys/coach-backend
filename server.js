@@ -139,6 +139,7 @@ wss.on("connection", (ws) => {
   let ready = false;
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
+  let currentIndex = 0; // 🔥 control real de ítem actual
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
@@ -245,6 +246,29 @@ wss.on("connection", (ws) => {
 
                 console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
 
+                // 🔥 VALIDACIÓN REAL DE PRONUNCIACIÓN
+const studentSaid = normalizeText(cleanChunk);
+const expected = normalizeText(items[currentIndex] || "");
+
+console.log("👂 ESTUDIANTE:", studentSaid);
+console.log("🎯 ESPERADO:", expected);
+
+if (expected && !studentSaid.includes(expected)) {
+  console.log("❌ PRONUNCIACIÓN INCORRECTA - BLOQUEANDO AVANCE");
+
+  session.sendRealtimeInput({
+    text:
+      "La pronunciación no fue correcta. Debes pedir repetir exactamente la misma palabra antes de continuar.",
+  });
+
+  return; // 🔒 Bloquea el avance al siguiente ítem
+}
+
+if (expected && studentSaid.includes(expected)) {
+  console.log("✅ PRONUNCIACIÓN ACEPTADA");
+  currentIndex++;
+}
+
                 if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
                   console.log("🏁 FRASE FINAL DETECTADA");
@@ -348,20 +372,22 @@ wss.on("connection", (ws) => {
     try {
       const msg = JSON.parse(raw.toString());
 
-      if (msg.type === "startSession") {
-        topic = msg.topic || "Frases de la semana";
+     if (msg.type === "startSession") {
+  topic = msg.topic || "Frases de la semana";
 
-        items =
-          Array.isArray(msg.items) && msg.items.length > 0
-            ? msg.items
-            : fallbackItemsForTopic(topic);
+  items =
+    Array.isArray(msg.items) && msg.items.length > 0
+      ? msg.items
+      : fallbackItemsForTopic(topic);
 
-        console.log("📚 TEMA RECIBIDO:", topic);
-        console.log("🧾 ITEMS RECIBIDOS:", items);
+  currentIndex = 0; // 🔥 RESET DEL ÍTEM ACTUAL
 
-        startGeminiSession();
-        return;
-      }
+  console.log("📚 TEMA RECIBIDO:", topic);
+  console.log("🧾 ITEMS RECIBIDOS:", items);
+
+  startGeminiSession();
+  return;
+}
 
       if (msg.type === "audio") {
         if (!ready || !session) return;
