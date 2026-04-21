@@ -13,65 +13,99 @@ const ai = new GoogleGenAI({
 });
 
 function fallbackItemsForTopic(topic) {
-  if (topic === "Frases de la semana") return ["Good morning"];
-  if (topic === "Práctica de vocabulario de My Book") {
-    return ["Yellow", "Red", "Blue", "Green"];
+  if (topic === "Frases de la semana") {
+    return ["Good morning"];
   }
+
+  if (topic === "Práctica de vocabulario de My Book") {
+    return ["Circle", "Square", "Triangle", "Rectangle"];
+  }
+
   return ["Good morning"];
 }
 
-/**
- * PROMPT CONTROLADO: el modelo obedece órdenes:
- * - MODEL: <word>
- * - CORRECT
- * - INCORRECT
- * - CLOSE
- */
 function buildPrompt(topic, items) {
   const safeItems =
     Array.isArray(items) && items.length > 0
       ? items
       : fallbackItemsForTopic(topic);
 
-  const contentList = safeItems.map((i) => `- ${i}`).join("\n");
+  const contentList = safeItems.map((item) => `- ${item}`).join("\n");
 
   return `
 Eres la Coach oficial de My Team Bilingual Process.
 
-IDENTIDAD:
-- Hablas siempre en español.
-- Solo usas inglés para pronunciar la palabra objetivo.
-- Eres cálida, clara y profesional.
+OBJETIVO:
+Entrenar pronunciación en inglés.
+
+REGLAS GENERALES:
+- Hablas SIEMPRE en español.
+- SOLO usas inglés para pronunciar o modelar la palabra o frase objetivo.
+- Das instrucciones en español.
+- Das retroalimentación en español.
+- Eres cálida, motivadora, positiva y exigente.
 - No cambias de tema.
-- No inventas palabras.
-- No agregas ejercicios.
+- No agregas palabras o frases fuera de la lista.
+- No avances automáticamente sin escuchar al estudiante.
 
-REGLA ABSOLUTA:
-- NO decides si la pronunciación es correcta.
-- NO avanzas automáticamente.
-- Solo actúas cuando el sistema te lo indique.
+MODO DE ENTRENAMIENTO:
 
-INSTRUCCIONES DEL SISTEMA (OBEDECE EXACTAMENTE):
-- Si recibes "MODEL: <PALABRA>":
-  1) dices EXACTAMENTE: repeat after me
-  2) pronuncias <PALABRA> en inglés de forma clara
-  3) guardas silencio
+- Trabajas UN ítem por vez.
+- Antes de cada ítem dices exactamente: "repeat after me".
+- Luego pronuncias la palabra o frase en inglés.
+- Después te callas y esperas al estudiante.
+- Escuchas atentamente el intento del estudiante.
 
-- Si recibes "CORRECT":
-  felicitas brevemente en español (1 frase) y guardas silencio.
+EVALUACIÓN ULTRA ESTRICTA:
 
-- Si recibes "INCORRECT":
-  corriges en español (1 frase) y pides repetir la MISMA palabra, y guardas silencio.
-
-- Si recibes "CLOSE":
-  dices EXACTAMENTE: Well done and see you in the next training
-  y luego no hablas más.
+- La palabra correcta es EXACTAMENTE la que está en la lista oficial.
+- Debes comparar mentalmente lo que escuchaste con esa palabra exacta.
+- Solo puedes considerar correcta la pronunciación si coincide claramente con la palabra objetivo.
+- Si el estudiante dice otra palabra, inventa sonidos o cambia sílabas importantes, es incorrecto.
+- Si hay errores fonéticos evidentes, es incorrecto.
+- No seas indulgente.
+- No avances por simpatía.
+- No felicites si no coincide claramente.
+- Si no coincide, di en español que no fue correcta y pide repetir el mismo ítem.
+- Solo cuando sea claramente correcta puedes felicitar brevemente y continuar.
+- Prestar atencion a las primeras y las últimas sílabas para decidir si la pronunciación es adecuada.
 
 TEMA ACTUAL:
 ${topic}
 
-LISTA OFICIAL:
+LISTA OFICIAL DE ESTA SESIÓN:
 ${contentList}
+
+IMPORTANTE:
+- Debes practicar SOLO esta lista.
+- Si el estudiante pronuncia mal, corrígelo amablemente en español.
+- No digas "vamos a darle" o "vamos con toda".
+- Si está aceptable, felicítalo brevemente en español y continúa.
+- Nunca hables todo el tiempo en inglés.
+- No inventes más ejercicios.
+- No agregues más palabras o frases al final.
+
+INICIO:
+- Saluda en español.
+- No digas "vamos a darle" o "vamos con toda".
+- Siempre empieza con: empecemos nuestro entrenamiento de hoy y juguemos a imitar
+- Preséntate como la Coach de My Team Bilingual Process.
+- Pregunta el nombre del estudiante en español.
+- Espera su respuesta.
+- Luego empieza el entrenamiento.
+
+CONTROL DE AVANCE:
+
+- Nunca avances automáticamente.
+- Solo avanzas cuando estés segura de que la palabra pronunciada coincide con la palabra objetivo.
+- Si dudas, pide repetir.
+
+CIERRE:
+Cuando termines TODA la lista, debes cerrar SIEMPRE diciendo esta frase exacta al final:
+"Well done and see you in the next training"
+
+Esa debe ser tu última frase.
+Después no sigues hablando.
 `;
 }
 
@@ -87,6 +121,7 @@ function normalizeText(text) {
 
 function detectFinalClosing(text) {
   const normalized = normalizeText(text);
+
   return (
     normalized.includes("well done and see you in the next training") ||
     normalized.includes("see you in the next training")
@@ -102,17 +137,13 @@ wss.on("connection", (ws) => {
 
   let session = null;
   let ready = false;
-
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
-
-  let currentIndex = 0; // ✅ control real
-  let greetingFinished = false; // ✅ para iniciar MODEL solo 1 vez tras saludo/nombre
+  let currentIndex = 0; // 🔥 control real de ítem actual
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
   let closeTriggered = false;
-
   let keepAliveInterval = null;
   let googleClosed = false;
   let initialInstructionSent = false;
@@ -126,7 +157,11 @@ wss.on("connection", (ws) => {
     console.log("🏁 CERRANDO SESIÓN");
 
     if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: "sessionEnded" }));
+      ws.send(
+        JSON.stringify({
+          type: "sessionEnded",
+        })
+      );
     }
 
     setTimeout(() => {
@@ -146,29 +181,10 @@ wss.on("connection", (ws) => {
 
     session.sendRealtimeInput({
       text:
-        "Saluda en español, preséntate como la Coach de My Team y pregunta el nombre del estudiante. Luego guarda silencio.",
+        "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
     });
 
     console.log("💬 COACH INICIADA");
-  }
-
-  // ✅ El backend ordena el próximo MODEL
-  function sendNextWord() {
-    if (!session) return;
-
-    if (currentIndex >= items.length) {
-      console.log("🏁 LISTA TERMINADA -> CLOSE");
-      session.sendRealtimeInput({ text: "CLOSE" });
-      pendingCloseAfterTurn = true;
-      return;
-    }
-
-    const word = items[currentIndex];
-    console.log("📤 ENVIANDO MODEL:", word);
-
-    session.sendRealtimeInput({
-      text: `MODEL: ${word}`,
-    });
   }
 
   function startGeminiSession() {
@@ -181,7 +197,6 @@ wss.on("connection", (ws) => {
     closeTriggered = false;
     googleClosed = false;
     initialInstructionSent = false;
-    greetingFinished = false;
 
     ai.live
       .connect({
@@ -191,17 +206,26 @@ wss.on("connection", (ws) => {
           outputAudioTranscription: {},
           speechConfig: {
             voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" },
+              prebuiltVoiceConfig: {
+                voiceName: "Kore",
+              },
             },
           },
           systemInstruction: {
-            parts: [{ text: buildPrompt(topic, items) }],
+            parts: [
+              {
+                text: buildPrompt(topic, items),
+              },
+            ],
           },
         },
         callbacks: {
+          onopen: () => {
+            console.log("🟣 GOOGLE LIVE ABIERTA");
+          },
+
           onmessage: (msg) => {
             try {
-              // ✅ Setup
               if (msg.setupComplete) {
                 ready = true;
                 console.log("✅ SETUP COMPLETO");
@@ -214,13 +238,36 @@ wss.on("connection", (ws) => {
                 return;
               }
 
-              // ✅ Acumular transcripción SOLO (sin evaluar aquí)
               const transcriptChunk = msg.outputTranscription?.text;
+
               if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
                 const cleanChunk = transcriptChunk.trim();
                 transcriptBuffer += " " + cleanChunk;
 
                 console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
+
+                // 🔥 VALIDACIÓN REAL DE PRONUNCIACIÓN
+const studentSaid = normalizeText(cleanChunk);
+const expected = normalizeText(items[currentIndex] || "");
+
+console.log("👂 ESTUDIANTE:", studentSaid);
+console.log("🎯 ESPERADO:", expected);
+
+if (expected && !studentSaid.includes(expected)) {
+  console.log("❌ PRONUNCIACIÓN INCORRECTA - BLOQUEANDO AVANCE");
+
+  session.sendRealtimeInput({
+    text:
+      "La pronunciación no fue correcta. Debes pedir repetir exactamente la misma palabra antes de continuar.",
+  });
+
+  return; // 🔒 Bloquea el avance al siguiente ítem
+}
+
+if (expected && studentSaid.includes(expected)) {
+  console.log("✅ PRONUNCIACIÓN ACEPTADA");
+  currentIndex++;
+}
 
                 if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
@@ -228,12 +275,13 @@ wss.on("connection", (ws) => {
                 }
               }
 
-              // ✅ Audio del modelo → frontend
               const parts = msg.serverContent?.modelTurn?.parts;
+
               if (parts?.length) {
                 for (const p of parts) {
                   if (p.inlineData?.data) {
                     process.stdout.write("🔊");
+
                     if (ws.readyState === ws.OPEN) {
                       ws.send(
                         JSON.stringify({
@@ -246,7 +294,6 @@ wss.on("connection", (ws) => {
                 }
               }
 
-              // ✅ Evaluación SOLO al finalizar turno
               if (msg.serverContent?.turnComplete) {
                 console.log("\n✅ TURNO COMPLETO");
                 console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
@@ -256,55 +303,6 @@ wss.on("connection", (ws) => {
                   return;
                 }
 
-                // 1) Al terminar el saludo/nombre, arrancamos el primer MODEL una sola vez
-                if (!greetingFinished) {
-                  greetingFinished = true;
-                  transcriptBuffer = "";
-                  sendNextWord();
-
-                  if (ws.readyState === ws.OPEN) {
-                    ws.send(JSON.stringify({ type: "turnComplete" }));
-                  }
-                  return;
-                }
-
-                // 2) Evaluación del intento del estudiante (texto acumulado)
-                const spoken = normalizeText(transcriptBuffer);
-                const expected = normalizeText(items[currentIndex] || "");
-
-                console.log("🧠 ESPERADO:", expected);
-                console.log("🗣️ ESCUCHADO:", spoken);
-
-                if (spoken) {
-                  if (expected && spoken.includes(expected)) {
-                    console.log("✅ CORRECTO");
-                    session.sendRealtimeInput({ text: "CORRECT" });
-
-                    currentIndex++;
-                    transcriptBuffer = "";
-
-                    setTimeout(() => {
-                      sendNextWord();
-                    }, 600);
-
-                    if (ws.readyState === ws.OPEN) {
-                      ws.send(JSON.stringify({ type: "turnComplete" }));
-                    }
-                    return;
-                  } else {
-                    console.log("❌ INCORRECTO");
-                    session.sendRealtimeInput({ text: "INCORRECT" });
-
-                    transcriptBuffer = "";
-
-                    if (ws.readyState === ws.OPEN) {
-                      ws.send(JSON.stringify({ type: "turnComplete" }));
-                    }
-                    return;
-                  }
-                }
-
-                // 3) Si no hubo transcripción, limpiamos y seguimos
                 transcriptBuffer = "";
 
                 if (ws.readyState === ws.OPEN) {
@@ -316,8 +314,23 @@ wss.on("connection", (ws) => {
             }
           },
 
+          onclose: (e) => {
+            googleClosed = true;
+            console.log(`⚪ GOOGLE CERRÓ: ${e.code}`);
+
+            if (pendingCloseAfterTurn && !closeTriggered) {
+              triggerSessionEnd();
+              return;
+            }
+
+            if (ws.readyState === ws.OPEN) {
+              ws.close();
+            }
+          },
+
           onerror: (err) => {
             console.error("🔴 ERROR GEMINI:", err);
+
             if (ws.readyState === ws.OPEN) {
               ws.send(
                 JSON.stringify({
@@ -327,18 +340,14 @@ wss.on("connection", (ws) => {
               );
             }
           },
-
-          onclose: (e) => {
-            googleClosed = true;
-            console.log("⚪ GOOGLE CERRÓ:", e?.code);
-          },
         },
       })
       .then((s) => {
         session = s;
         console.log("🔗 SESIÓN LISTA");
 
-        // keepAlive ping al front (tu patrón original)
+        sendInitialInstructionIfReady();
+
         keepAliveInterval = setInterval(() => {
           if (ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ type: "ping" }));
@@ -363,25 +372,22 @@ wss.on("connection", (ws) => {
     try {
       const msg = JSON.parse(raw.toString());
 
-      if (msg.type === "startSession") {
-        topic = msg.topic || "Frases de la semana";
+     if (msg.type === "startSession") {
+  topic = msg.topic || "Frases de la semana";
 
-        items =
-          Array.isArray(msg.items) && msg.items.length > 0
-            ? msg.items
-            : fallbackItemsForTopic(topic);
+  items =
+    Array.isArray(msg.items) && msg.items.length > 0
+      ? msg.items
+      : fallbackItemsForTopic(topic);
 
-        currentIndex = 0;
-        greetingFinished = false;
-        transcriptBuffer = "";
-        pendingCloseAfterTurn = false;
+  currentIndex = 0; // 🔥 RESET DEL ÍTEM ACTUAL
 
-        console.log("📚 TEMA RECIBIDO:", topic);
-        console.log("🧾 ITEMS RECIBIDOS:", items);
+  console.log("📚 TEMA RECIBIDO:", topic);
+  console.log("🧾 ITEMS RECIBIDOS:", items);
 
-        startGeminiSession();
-        return;
-      }
+  startGeminiSession();
+  return;
+}
 
       if (msg.type === "audio") {
         if (!ready || !session) return;
