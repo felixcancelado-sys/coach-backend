@@ -13,26 +13,29 @@ const ai = new GoogleGenAI({
 });
 
 function fallbackItemsForTopic(topic) {
-  if (topic === "Frases de la semana") {
-    return ["Good morning"];
-  }
-
+  if (topic === "Frases de la semana") return ["Good morning"];
   if (topic === "Práctica de vocabulario de My Book") {
-    return ["Circle", "Square", "Triangle", "Rectangle"];
+    return ["Yellow", "Red", "Blue", "Green"];
   }
-
   return ["Good morning"];
 }
 
+/**
+ * PROMPT CONTROLADO: el modelo obedece órdenes:
+ * - MODEL: <word>
+ * - CORRECT
+ * - INCORRECT
+ * - CLOSE
+ */
 function buildPrompt(topic, items) {
   const safeItems =
     Array.isArray(items) && items.length > 0
       ? items
       : fallbackItemsForTopic(topic);
 
-  const contentList = safeItems.map((item) => `- ${item}`).join("\n");
+  const contentList = safeItems.map((i) => `- ${i}`).join("\n");
 
- return `
+  return `
 Eres la Coach oficial de My Team Bilingual Process.
 
 IDENTIDAD:
@@ -48,18 +51,21 @@ REGLA ABSOLUTA:
 - NO avanzas automáticamente.
 - Solo actúas cuando el sistema te lo indique.
 
-INSTRUCCIONES DEL SISTEMA:
-- Cuando el sistema diga "MODEL", dices exactamente:
-  repeat after me
-  Luego pronuncias la palabra indicada.
-  Luego guardas silencio.
+INSTRUCCIONES DEL SISTEMA (OBEDECE EXACTAMENTE):
+- Si recibes "MODEL: <PALABRA>":
+  1) dices EXACTAMENTE: repeat after me
+  2) pronuncias <PALABRA> en inglés de forma clara
+  3) guardas silencio
 
-- Cuando el sistema diga "CORRECT", felicitas brevemente en español.
+- Si recibes "CORRECT":
+  felicitas brevemente en español (1 frase) y guardas silencio.
 
-- Cuando el sistema diga "INCORRECT", corriges en español y pides repetir la misma palabra.
+- Si recibes "INCORRECT":
+  corriges en español (1 frase) y pides repetir la MISMA palabra, y guardas silencio.
 
-- Cuando el sistema diga "CLOSE", dices exactamente:
-  Well done and see you in the next training
+- Si recibes "CLOSE":
+  dices EXACTAMENTE: Well done and see you in the next training
+  y luego no hablas más.
 
 TEMA ACTUAL:
 ${topic}
@@ -81,7 +87,6 @@ function normalizeText(text) {
 
 function detectFinalClosing(text) {
   const normalized = normalizeText(text);
-
   return (
     normalized.includes("well done and see you in the next training") ||
     normalized.includes("see you in the next training")
@@ -97,14 +102,17 @@ wss.on("connection", (ws) => {
 
   let session = null;
   let ready = false;
+
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
-  let currentIndex = 0; // 🔥 control real de ítem actual
-  let greetingFinished = false; // 🔥 nuevo
+
+  let currentIndex = 0; // ✅ control real
+  let greetingFinished = false; // ✅ para iniciar MODEL solo 1 vez tras saludo/nombre
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
   let closeTriggered = false;
+
   let keepAliveInterval = null;
   let googleClosed = false;
   let initialInstructionSent = false;
@@ -118,11 +126,7 @@ wss.on("connection", (ws) => {
     console.log("🏁 CERRANDO SESIÓN");
 
     if (ws.readyState === ws.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: "sessionEnded",
-        })
-      );
+      ws.send(JSON.stringify({ type: "sessionEnded" }));
     }
 
     setTimeout(() => {
@@ -134,29 +138,38 @@ wss.on("connection", (ws) => {
     }, 900);
   }
 
- function sendInitialInstructionIfReady() {
-  if (initialInstructionSent) return;
-  if (!ready || !session) return;
+  function sendInitialInstructionIfReady() {
+    if (initialInstructionSent) return;
+    if (!ready || !session) return;
 
-  initialInstructionSent = true;
+    initialInstructionSent = true;
 
-  session.sendRealtimeInput({
-    text:
-      "Saluda en español, preséntate como la Coach de My Team y pregunta el nombre del estudiante. Luego espera instrucciones del sistema.",
-  });
+    session.sendRealtimeInput({
+      text:
+        "Saluda en español, preséntate como la Coach de My Team y pregunta el nombre del estudiante. Luego guarda silencio.",
+    });
 
-  console.log("💬 COACH INICIADA");
-}
+    console.log("💬 COACH INICIADA");
+  }
+
+  // ✅ El backend ordena el próximo MODEL
   function sendNextWord() {
-  if (!session) return;
+    if (!session) return;
 
-  const nextWord = items[currentIndex];
-  if (!nextWord) return;
+    if (currentIndex >= items.length) {
+      console.log("🏁 LISTA TERMINADA -> CLOSE");
+      session.sendRealtimeInput({ text: "CLOSE" });
+      pendingCloseAfterTurn = true;
+      return;
+    }
 
-  session.sendRealtimeInput({
-    text: `Di exactamente: "repeat after me", luego pronuncia claramente la palabra ${nextWord} y después guarda silencio.`,
-  });
-}
+    const word = items[currentIndex];
+    console.log("📤 ENVIANDO MODEL:", word);
+
+    session.sendRealtimeInput({
+      text: `MODEL: ${word}`,
+    });
+  }
 
   function startGeminiSession() {
     console.log("🎯 INICIANDO SESIÓN CON TEMA:", topic);
@@ -168,6 +181,7 @@ wss.on("connection", (ws) => {
     closeTriggered = false;
     googleClosed = false;
     initialInstructionSent = false;
+    greetingFinished = false;
 
     ai.live
       .connect({
@@ -177,26 +191,17 @@ wss.on("connection", (ws) => {
           outputAudioTranscription: {},
           speechConfig: {
             voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: "Kore",
-              },
+              prebuiltVoiceConfig: { voiceName: "Kore" },
             },
           },
           systemInstruction: {
-            parts: [
-              {
-                text: buildPrompt(topic, items),
-              },
-            ],
+            parts: [{ text: buildPrompt(topic, items) }],
           },
         },
         callbacks: {
-          onopen: () => {
-            console.log("🟣 GOOGLE LIVE ABIERTA");
-          },
-
           onmessage: (msg) => {
             try {
+              // ✅ Setup
               if (msg.setupComplete) {
                 ready = true;
                 console.log("✅ SETUP COMPLETO");
@@ -209,36 +214,13 @@ wss.on("connection", (ws) => {
                 return;
               }
 
+              // ✅ Acumular transcripción SOLO (sin evaluar aquí)
               const transcriptChunk = msg.outputTranscription?.text;
-
               if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
                 const cleanChunk = transcriptChunk.trim();
                 transcriptBuffer += " " + cleanChunk;
 
                 console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
-
-                // 🔥 VALIDACIÓN REAL DE PRONUNCIACIÓN
-const studentSaid = normalizeText(cleanChunk);
-const expected = normalizeText(items[currentIndex] || "");
-
-console.log("👂 ESTUDIANTE:", studentSaid);
-console.log("🎯 ESPERADO:", expected);
-
-if (expected && !studentSaid.includes(expected)) {
-  console.log("❌ PRONUNCIACIÓN INCORRECTA - BLOQUEANDO AVANCE");
-
-  session.sendRealtimeInput({
-    text:
-      "La pronunciación no fue correcta. Debes pedir repetir exactamente la misma palabra antes de continuar.",
-  });
-
-  return; // 🔒 Bloquea el avance al siguiente ítem
-}
-
-if (expected && studentSaid.includes(expected)) {
-  console.log("✅ PRONUNCIACIÓN ACEPTADA");
-  currentIndex++;
-}
 
                 if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
@@ -246,13 +228,12 @@ if (expected && studentSaid.includes(expected)) {
                 }
               }
 
+              // ✅ Audio del modelo → frontend
               const parts = msg.serverContent?.modelTurn?.parts;
-
               if (parts?.length) {
                 for (const p of parts) {
                   if (p.inlineData?.data) {
                     process.stdout.write("🔊");
-
                     if (ws.readyState === ws.OPEN) {
                       ws.send(
                         JSON.stringify({
@@ -265,49 +246,78 @@ if (expected && studentSaid.includes(expected)) {
                 }
               }
 
+              // ✅ Evaluación SOLO al finalizar turno
               if (msg.serverContent?.turnComplete) {
-  console.log("\n✅ TURNO COMPLETO");
-  console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
+                console.log("\n✅ TURNO COMPLETO");
+                console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
 
-  if (pendingCloseAfterTurn) {
-    triggerSessionEnd();
-    return;
-  }
+                if (pendingCloseAfterTurn) {
+                  triggerSessionEnd();
+                  return;
+                }
 
-  // 🔥 Solo después del saludo enviamos la primera palabra
-  if (!greetingFinished) {
-    greetingFinished = true;
-    sendNextWord();
-  }
+                // 1) Al terminar el saludo/nombre, arrancamos el primer MODEL una sola vez
+                if (!greetingFinished) {
+                  greetingFinished = true;
+                  transcriptBuffer = "";
+                  sendNextWord();
 
-  transcriptBuffer = "";
+                  if (ws.readyState === ws.OPEN) {
+                    ws.send(JSON.stringify({ type: "turnComplete" }));
+                  }
+                  return;
+                }
 
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify({ type: "turnComplete" }));
-  }
-}
+                // 2) Evaluación del intento del estudiante (texto acumulado)
+                const spoken = normalizeText(transcriptBuffer);
+                const expected = normalizeText(items[currentIndex] || "");
+
+                console.log("🧠 ESPERADO:", expected);
+                console.log("🗣️ ESCUCHADO:", spoken);
+
+                if (spoken) {
+                  if (expected && spoken.includes(expected)) {
+                    console.log("✅ CORRECTO");
+                    session.sendRealtimeInput({ text: "CORRECT" });
+
+                    currentIndex++;
+                    transcriptBuffer = "";
+
+                    setTimeout(() => {
+                      sendNextWord();
+                    }, 600);
+
+                    if (ws.readyState === ws.OPEN) {
+                      ws.send(JSON.stringify({ type: "turnComplete" }));
+                    }
+                    return;
+                  } else {
+                    console.log("❌ INCORRECTO");
+                    session.sendRealtimeInput({ text: "INCORRECT" });
+
+                    transcriptBuffer = "";
+
+                    if (ws.readyState === ws.OPEN) {
+                      ws.send(JSON.stringify({ type: "turnComplete" }));
+                    }
+                    return;
+                  }
+                }
+
+                // 3) Si no hubo transcripción, limpiamos y seguimos
+                transcriptBuffer = "";
+
+                if (ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
+                }
+              }
             } catch (err) {
               console.error("❌ ERROR MENSAJE:", err);
             }
           },
 
-          onclose: (e) => {
-            googleClosed = true;
-            console.log(`⚪ GOOGLE CERRÓ: ${e.code}`);
-
-            if (pendingCloseAfterTurn && !closeTriggered) {
-              triggerSessionEnd();
-              return;
-            }
-
-            if (ws.readyState === ws.OPEN) {
-              ws.close();
-            }
-          },
-
           onerror: (err) => {
             console.error("🔴 ERROR GEMINI:", err);
-
             if (ws.readyState === ws.OPEN) {
               ws.send(
                 JSON.stringify({
@@ -317,14 +327,18 @@ if (expected && studentSaid.includes(expected)) {
               );
             }
           },
+
+          onclose: (e) => {
+            googleClosed = true;
+            console.log("⚪ GOOGLE CERRÓ:", e?.code);
+          },
         },
       })
       .then((s) => {
         session = s;
         console.log("🔗 SESIÓN LISTA");
 
-        sendInitialInstructionIfReady();
-
+        // keepAlive ping al front (tu patrón original)
         keepAliveInterval = setInterval(() => {
           if (ws.readyState === ws.OPEN) {
             ws.send(JSON.stringify({ type: "ping" }));
@@ -349,22 +363,25 @@ if (expected && studentSaid.includes(expected)) {
     try {
       const msg = JSON.parse(raw.toString());
 
-     if (msg.type === "startSession") {
-  topic = msg.topic || "Frases de la semana";
+      if (msg.type === "startSession") {
+        topic = msg.topic || "Frases de la semana";
 
-  items =
-    Array.isArray(msg.items) && msg.items.length > 0
-      ? msg.items
-      : fallbackItemsForTopic(topic);
+        items =
+          Array.isArray(msg.items) && msg.items.length > 0
+            ? msg.items
+            : fallbackItemsForTopic(topic);
 
-  currentIndex = 0; // 🔥 RESET DEL ÍTEM ACTUAL
+        currentIndex = 0;
+        greetingFinished = false;
+        transcriptBuffer = "";
+        pendingCloseAfterTurn = false;
 
-  console.log("📚 TEMA RECIBIDO:", topic);
-  console.log("🧾 ITEMS RECIBIDOS:", items);
+        console.log("📚 TEMA RECIBIDO:", topic);
+        console.log("🧾 ITEMS RECIBIDOS:", items);
 
-  startGeminiSession();
-  return;
-}
+        startGeminiSession();
+        return;
+      }
 
       if (msg.type === "audio") {
         if (!ready || !session) return;
