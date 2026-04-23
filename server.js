@@ -249,13 +249,20 @@ wss.on("connection", (ws) => {
                 return;
               }
 
-              const transcriptChunk = msg.outputTranscription?.text;
+             const transcriptChunk = msg.outputTranscription?.text;
 
-              if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
-                const cleanChunk = transcriptChunk.trim();
-                transcriptBuffer += " " + cleanChunk;
+if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
+  const cleanChunk = transcriptChunk.trim();
+  transcriptBuffer += " " + cleanChunk;
 
-                console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
+  console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
+
+  // ✅ Detectar cierre por frase final (backend)
+  if (detectFinalClosing(transcriptBuffer)) {
+    pendingCloseAfterTurn = true;
+    console.log("🏁 FRASE FINAL DETECTADA");
+  }
+}
 
                 // 🔥 VALIDACIÓN REAL DE PRONUNCIACIÓN
 const studentSaid = normalizeText(cleanChunk);
