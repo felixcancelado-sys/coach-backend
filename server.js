@@ -223,7 +223,6 @@ function normalizeText(text) {
 
 function detectFinalClosing(text) {
   const normalized = normalizeText(text);
-
   return (
     normalized.includes("well done and see you in the next training") ||
     normalized.includes("see you in the next training")
@@ -241,7 +240,7 @@ wss.on("connection", (ws) => {
   let ready = false;
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
-  let currentIndex = 0; // control de ítem actual
+  let currentIndex = 0;
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
@@ -332,7 +331,6 @@ wss.on("connection", (ws) => {
                 return;
               }
 
-              // ✅ Transcripción del MODELO (output)
               const transcriptChunk = msg.outputTranscription?.text;
 
               if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
@@ -341,28 +339,12 @@ wss.on("connection", (ws) => {
 
                 console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
 
-                // ✅ Detectar cierre por frase final (backend)
                 if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
                   console.log("🏁 FRASE FINAL DETECTADA");
                 }
-
-                // ✅ Validación "best-effort" (si sigues queriendo usar transcript del modelo)
-                // Nota: Esto NO es transcripción del estudiante, es del modelo.
-                // Si quieres evaluación del estudiante de verdad, hay que habilitar inputAudioTranscription.
-                const studentSaid = normalizeText(cleanChunk);
-                const expected = normalizeText(items[currentIndex] || "");
-
-                console.log("👂 (texto) :", studentSaid);
-                console.log("🎯 ESPERADO:", expected);
-
-                // Solo como señal: si aparece exactamente la palabra esperada en la transcripción
-                if (expected && studentSaid.includes(expected)) {
-                  // No incrementamos aquí para no desincronizar. Si lo quieres, lo hacemos en turnComplete.
-                }
               }
 
-              // ✅ Audio del modelo → frontend
               const parts = msg.serverContent?.modelTurn?.parts;
 
               if (parts?.length) {
@@ -382,7 +364,6 @@ wss.on("connection", (ws) => {
                 }
               }
 
-              // ✅ Cierre ordenado al finalizar turno
               if (msg.serverContent?.turnComplete) {
                 console.log("\n✅ TURNO COMPLETO");
                 console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
@@ -435,7 +416,6 @@ wss.on("connection", (ws) => {
         session = s;
         console.log("🔗 SESIÓN LISTA");
 
-        // (por si setupComplete tarda)
         sendInitialInstructionIfReady();
 
         keepAliveInterval = setInterval(() => {
@@ -461,6 +441,66 @@ wss.on("connection", (ws) => {
   ws.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
+
+      /* =========================
+         ✅ NUEVO: VALIDACIONES PIN
+         (responden rápido y salen)
+      ========================= */
+
+      // PIN país: PIN_COUNTRY_CO=1234, etc.
+      if (msg.type === "checkCountryPin") {
+        const countryId = String(msg.countryId || "");
+        const pin = String(msg.pin || "");
+        const envKey = `PIN_COUNTRY_${countryId}`;
+        const expected = String(process.env[envKey] || "");
+        const ok = expected.length > 0 && pin === expected;
+
+        console.log("🔐 checkCountryPin", { countryId, envKey, ok });
+
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: "pinResult", ok }));
+        }
+        return;
+      }
+
+      // PIN jardín: PIN_GARDEN_CO_J1=xxxx
+      if (msg.type === "checkGardenPin") {
+        const countryId = String(msg.countryId || "");
+        const gardenId = String(msg.gardenId || "");
+        const pin = String(msg.pin || "");
+        const envKey = `PIN_GARDEN_${countryId}_${gardenId}`;
+        const expected = String(process.env[envKey] || "");
+        const ok = expected.length > 0 && pin === expected;
+
+        console.log("🔐 checkGardenPin", { countryId, gardenId, envKey, ok });
+
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: "pinResult", ok }));
+        }
+        return;
+      }
+
+      // PIN grado: PIN_CO_J1_TRANSICION=xxxx
+      if (msg.type === "checkGradePin") {
+        const countryId = String(msg.countryId || "");
+        const gardenId = String(msg.gardenId || "");
+        const gradeId = String(msg.gradeId || "");
+        const pin = String(msg.pin || "");
+        const envKey = `PIN_${countryId}_${gardenId}_${gradeId}`;
+        const expected = String(process.env[envKey] || "");
+        const ok = expected.length > 0 && pin === expected;
+
+        console.log("🔐 checkGradePin", { countryId, gardenId, gradeId, envKey, ok });
+
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: "pinResult", ok }));
+        }
+        return;
+      }
+
+      /* =========================
+         Sesión normal (voz)
+      ========================= */
 
       if (msg.type === "startSession") {
         topic = msg.topic || "Frases de la semana";
