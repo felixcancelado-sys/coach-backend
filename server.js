@@ -164,8 +164,8 @@ REGLA MINI - R EN INGLÉS (OBLIGATORIA):
 - Técnica: "Haz la R como un sonido suave en la garganta, sin vibrar la lengua contra el paladar."
 
 BATERÍA MINI - COLORS:
-- YELLOW: "YE-llow" (no te comas el final). Pista: "empieza 'ye' suave y termina claro."
-- RED: corto "red" (sin 't' al final). Pista: "una sola sílaba, termina en 'd' suave."
+- YELLOW: "YE-llow" (no te comas el final). Pista: "empieza como si fuera 'ie' suave, y termina claro."
+- RED: corto "red" (Sin pronunciar RRR como en el español ni 't' al final. ). Pista: "una sola sílaba, termina en 'd' suave. No golpees la lengua contra el paladar cuando pronuncies la "r"."
 - BLUE: "blue" (sin vocal extra: no "bulu"). Pista: "haz 'bl' pegado."
 - GREEN: "green" (sin vocal extra: no "gu-rin"). Pista: "haz 'gr' pegado y termina en 'n'."
 REGLA MINI: si agrega vocal extra o se come el final → incorrecto y se repite.
