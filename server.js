@@ -47,10 +47,9 @@ REGLAS GENERALES:
 - No cambias de tema.
 - No agregas palabras o frases fuera de la lista.
 - No avances automáticamente sin escuchar al estudiante.
-- Si el estudiante pregunta otra cosa, responde: ‘En este training practicamos solo estas palabras’ y vuelve al ítem actual.”
+- Si el estudiante pregunta otra cosa, responde: ‘En este training practicamos solo estas palabras’ y vuelve al ítem actual.
 
 MODO DE ENTRENAMIENTO:
-
 - Trabajas UN ítem por vez.
 - Antes de cada ítem dices exactamente: "repeat after me".
 - Luego pronuncias la palabra o frase en inglés.
@@ -58,7 +57,6 @@ MODO DE ENTRENAMIENTO:
 - Escuchas atentamente el intento del estudiante.
 
 EVALUACIÓN ULTRA ESTRICTA:
-
 - La palabra correcta es EXACTAMENTE la que está en la lista oficial.
 - Debes comparar mentalmente lo que escuchaste con esa palabra exacta.
 - Solo puedes considerar correcta la pronunciación si coincide claramente con la palabra objetivo.
@@ -68,8 +66,8 @@ EVALUACIÓN ULTRA ESTRICTA:
 - No avances por simpatía.
 - No felicites si no coincide claramente.
 - Si no coincide, di en español que no fue correcta y pide repetir el mismo ítem.
-- Solo cuando sea claramente correcta puedes felicitar brevemente y continuar.
-- Prestar atencion a las primeras y las últimas sílabas para decidir si la pronunciación es adecuada.
+- Solo cuando sea claramente correcta puedes felicitar brevemente en español y continuar.
+- Prestar atención a las primeras y las últimas sílabas para decidir si la pronunciación es adecuada.
 
 TEMA ACTUAL:
 ${topic}
@@ -79,18 +77,18 @@ ${contentList}
 
 IMPORTANTE:
 - Debes practicar SOLO esta lista.
-- No agregas palabras o frases fuera de la lista. Se estricta en esto. No agregues temas o palabras dentro de la sesión.
-- No tardes tanto en dar feedback
+- No agregas palabras o frases fuera de la lista. Sé estricta en esto.
+- No tardes tanto en dar feedback.
 - Si el estudiante pronuncia mal, corrígelo amablemente en español.
-- Prestar especialmente atencion a las primeras y últimas sílabas
+- Prestar especialmente atención a las primeras y últimas sílabas.
 - No digas "vamos a darle" o "vamos con toda".
 - Si está aceptable, felicítalo brevemente en español y continúa.
 - Nunca hables todo el tiempo en inglés.
 - No inventes más ejercicios.
 - No agregues más palabras o frases al final.
-- Cuando haya palabras con "R" en Inglés NO aceptar palabras si el usuario golpea el palador. Debes explicar que la "R" en inglés es más sutil y no debe golpetear el paladar. Dar ejemplo de como suena de verdad en Inglés.
-- Cuando haya palabras con "G" en Inglés verifica que la pronuncia. Especialmente si es en la primera sílaba o última sílaba.
-- Cuando haya palabras con "s", sobretodo en sílabas iniciales, explicar que la "s" en Inglés NO se pronuncia "es". Dar ejemplo de como suena de verdad en Inglés.
+- Cuando haya palabras con "R" en inglés NO aceptar palabras si el usuario golpea el paladar. Explica que la "R" en inglés es más sutil.
+- Cuando haya palabras con "G" en inglés verifica su pronunciación.
+- Cuando haya palabras con "S", sobre todo en sílaba inicial, explicar que la "s" en inglés NO se pronuncia "es".
 - No aceptar palabras que usen la "R" como se pronuncia en español.
 
 INICIO:
@@ -103,13 +101,11 @@ INICIO:
 - Luego empieza el entrenamiento.
 
 CONTROL DE AVANCE:
-
 - Nunca avances automáticamente.
-- Antes de cada ítem dices exactamente: "repeat after me". No digas: "repite despues de mi" en español.
+- Antes de cada ítem dices exactamente: "repeat after me". No digas "repite después de mí" en español.
 - Solo avanzas cuando estés segura de que la palabra pronunciada coincide con la palabra objetivo.
 - Si dudas, pide repetir.
-- Solo dejas avanzar si la primera sílaba de la palabra y la última sílaba estan correctamente pronunciadas. De lo contrario no debes avanzar.
-
+- Solo dejas avanzar si la primera sílaba y la última sílaba están correctamente pronunciadas.
 
 CIERRE:
 Cuando termines TODA la lista, debes cerrar SIEMPRE diciendo esta frase exacta al final:
@@ -150,7 +146,7 @@ wss.on("connection", (ws) => {
   let ready = false;
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
-  let currentIndex = 0; // 🔥 control real de ítem actual
+  let currentIndex = 0; // control de ítem actual
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
@@ -168,11 +164,7 @@ wss.on("connection", (ws) => {
     console.log("🏁 CERRANDO SESIÓN");
 
     if (ws.readyState === ws.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: "sessionEnded",
-        })
-      );
+      ws.send(JSON.stringify({ type: "sessionEnded" }));
     }
 
     setTimeout(() => {
@@ -223,11 +215,7 @@ wss.on("connection", (ws) => {
             },
           },
           systemInstruction: {
-            parts: [
-              {
-                text: buildPrompt(topic, items),
-              },
-            ],
+            parts: [{ text: buildPrompt(topic, items) }],
           },
         },
         callbacks: {
@@ -249,50 +237,37 @@ wss.on("connection", (ws) => {
                 return;
               }
 
-             const transcriptChunk = msg.outputTranscription?.text;
+              // ✅ Transcripción del MODELO (output)
+              const transcriptChunk = msg.outputTranscription?.text;
 
-if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
-  const cleanChunk = transcriptChunk.trim();
-  transcriptBuffer += " " + cleanChunk;
+              if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
+                const cleanChunk = transcriptChunk.trim();
+                transcriptBuffer += " " + cleanChunk;
 
-  console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
+                console.log("📝 TRANSCRIPCIÓN:", cleanChunk);
 
-  // ✅ Detectar cierre por frase final (backend)
-  if (detectFinalClosing(transcriptBuffer)) {
-    pendingCloseAfterTurn = true;
-    console.log("🏁 FRASE FINAL DETECTADA");
-  }
-}
-
-                // 🔥 VALIDACIÓN REAL DE PRONUNCIACIÓN
-const studentSaid = normalizeText(cleanChunk);
-const expected = normalizeText(items[currentIndex] || "");
-
-console.log("👂 ESTUDIANTE:", studentSaid);
-console.log("🎯 ESPERADO:", expected);
-
-if (expected && !studentSaid.includes(expected)) {
-  console.log("❌ PRONUNCIACIÓN INCORRECTA - BLOQUEANDO AVANCE");
-
-  session.sendRealtimeInput({
-    text:
-      "La pronunciación no fue correcta. Debes pedir repetir exactamente la misma palabra antes de continuar.",
-  });
-
-  return; // 🔒 Bloquea el avance al siguiente ítem
-}
-
-if (expected && studentSaid.includes(expected)) {
-  console.log("✅ PRONUNCIACIÓN ACEPTADA");
-  currentIndex++;
-}
-
+                // ✅ Detectar cierre por frase final (backend)
                 if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
                   console.log("🏁 FRASE FINAL DETECTADA");
                 }
+
+                // ✅ Validación "best-effort" (si sigues queriendo usar transcript del modelo)
+                // Nota: Esto NO es transcripción del estudiante, es del modelo.
+                // Si quieres evaluación del estudiante de verdad, hay que habilitar inputAudioTranscription.
+                const studentSaid = normalizeText(cleanChunk);
+                const expected = normalizeText(items[currentIndex] || "");
+
+                console.log("👂 (texto) :", studentSaid);
+                console.log("🎯 ESPERADO:", expected);
+
+                // Solo como señal: si aparece exactamente la palabra esperada en la transcripción
+                if (expected && studentSaid.includes(expected)) {
+                  // No incrementamos aquí para no desincronizar. Si lo quieres, lo hacemos en turnComplete.
+                }
               }
 
+              // ✅ Audio del modelo → frontend
               const parts = msg.serverContent?.modelTurn?.parts;
 
               if (parts?.length) {
@@ -312,6 +287,7 @@ if (expected && studentSaid.includes(expected)) {
                 }
               }
 
+              // ✅ Cierre ordenado al finalizar turno
               if (msg.serverContent?.turnComplete) {
                 console.log("\n✅ TURNO COMPLETO");
                 console.log("📌 pendingCloseAfterTurn:", pendingCloseAfterTurn);
@@ -364,6 +340,7 @@ if (expected && studentSaid.includes(expected)) {
         session = s;
         console.log("🔗 SESIÓN LISTA");
 
+        // (por si setupComplete tarda)
         sendInitialInstructionIfReady();
 
         keepAliveInterval = setInterval(() => {
@@ -390,22 +367,22 @@ if (expected && studentSaid.includes(expected)) {
     try {
       const msg = JSON.parse(raw.toString());
 
-     if (msg.type === "startSession") {
-  topic = msg.topic || "Frases de la semana";
+      if (msg.type === "startSession") {
+        topic = msg.topic || "Frases de la semana";
 
-  items =
-    Array.isArray(msg.items) && msg.items.length > 0
-      ? msg.items
-      : fallbackItemsForTopic(topic);
+        items =
+          Array.isArray(msg.items) && msg.items.length > 0
+            ? msg.items
+            : fallbackItemsForTopic(topic);
 
-  currentIndex = 0; // 🔥 RESET DEL ÍTEM ACTUAL
+        currentIndex = 0;
 
-  console.log("📚 TEMA RECIBIDO:", topic);
-  console.log("🧾 ITEMS RECIBIDOS:", items);
+        console.log("📚 TEMA RECIBIDO:", topic);
+        console.log("🧾 ITEMS RECIBIDOS:", items);
 
-  startGeminiSession();
-  return;
-}
+        startGeminiSession();
+        return;
+      }
 
       if (msg.type === "audio") {
         if (!ready || !session) return;
