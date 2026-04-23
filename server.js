@@ -127,16 +127,17 @@ ${topic}
 LISTA OFICIAL DE ESTA SESIÓN:
 ${contentList}
 
-CIERRE:
-REGLA ESPECIAL (OBLIGATORIA):
+CIERRE (OBLIGATORIO):
 - La frase "Well done and see you in the next training" es SOLO despedida.
 - NUNCA pidas al estudiante que la repita.
-- Si tú dices esa frase, la sesión terminó y debes despedirte (silencio después).
+- NUNCA entrenes esa frase como si fuera un ítem.
+- Si el estudiante dice o repite esa frase en cualquier momento, no la entrenes: responde en español "La sesión terminó" y cierras.
+
 Cuando termines TODA la lista, debes cerrar SIEMPRE diciendo esta frase exacta al final:
 "Well done and see you in the next training"
+
 Esa debe ser tu última frase. Después no sigues hablando.
-`;
-}
+
 function normalizeText(text) {
   return String(text || "")
     .toLowerCase()
