@@ -96,11 +96,13 @@ CRITERIOS DE PRONUNCIACIÓN (para decidir correcto/incorrecto):
   - No es T ni D.
   - Si lo hace como T/D/S/F, es incorrecto y se repite.
 - Si detectas cualquiera de estos errores, es incorrecto y se repite.
+
 REGLA MINI - R EN INGLÉS (OBLIGATORIA):
 - Si escuchas una R fuerte/trill (RRR) como en español o golpeando el paladar, es INCORRECTO.
 - Corrección (1 frase): "La R en inglés es suave, no vibra; no golpees el paladar."
 - Pide repetir la misma palabra y vuelve a modelarla.
 - Técnica: "Haz la R como un sonido suave en la garganta, sin vibrar la lengua contra el paladar."
+
 BATERÍA MINI - COLORS:
 - YELLOW: "YE-llow" (no te comas el final). Pista: "empieza 'ye' suave y termina claro."
 - RED: corto "red" (sin 't' al final). Pista: "una sola sílaba, termina en 'd' suave."
@@ -137,6 +139,8 @@ Cuando termines TODA la lista, debes cerrar SIEMPRE diciendo esta frase exacta a
 "Well done and see you in the next training"
 
 Esa debe ser tu última frase. Después no sigues hablando.
+`;
+}
 
 function normalizeText(text) {
   return String(text || "")
