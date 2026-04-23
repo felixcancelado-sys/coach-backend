@@ -78,6 +78,7 @@ ${contentList}
 
 IMPORTANTE:
 - Debes practicar SOLO esta lista.
+- No agregas palabras o frases fuera de la lista. Se estricta en esto. No agregues temas o palabras dentro de la sesión.
 - No tardes tanto en dar feedback
 - Si el estudiante pronuncia mal, corrígelo amablemente en español.
 - Prestar especialmente atencion a las primeras y últimas sílabas
