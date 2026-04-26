@@ -4,7 +4,212 @@ import { GoogleGenAI, Modality } from "@google/genai";
 
 const PORT = process.env.PORT || 8080;
 
-const server = http.createServer();
+/* =========================
+   MOODLE REST (Railway)
+   ========================= */
+
+const MOODLE_BASE_URL = process.env.MOODLE_BASE_URL; // ej: https://myteam.tizapp.fun
+const MOODLE_WSTOKEN = process.env.MOODLE_WSTOKEN;   // token MTBP_EVAL (sin caducidad)
+const EVAL_API_KEY = process.env.EVAL_API_KEY;       // opcional (recomendado)
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, x-api-key",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  };
+}
+
+function json(res, status, obj) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    ...corsHeaders(),
+  });
+  res.end(JSON.stringify(obj));
+}
+
+function normalizeName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[–—−]/g, "-")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (ch) => (raw += ch));
+    req.on("end", () => {
+      try {
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function moodleCall(wsfunction, paramsObj) {
+  if (!MOODLE_BASE_URL || !MOODLE_WSTOKEN) {
+    throw new Error("Faltan MOODLE_BASE_URL o MOODLE_WSTOKEN en Railway");
+  }
+
+  const url = `${MOODLE_BASE_URL}/webservice/rest/server.php`;
+
+  const body = new URLSearchParams({
+    wstoken: MOODLE_WSTOKEN,
+    wsfunction,
+    moodlewsrestformat: "json",
+  });
+
+  for (const [k, v] of Object.entries(paramsObj || {})) {
+    body.append(k, String(v));
+  }
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  const data = await r.json();
+
+  if (data && data.exception) {
+    throw new Error(`${data.exception}: ${data.message || "Error Moodle WS"}`);
+  }
+  return data;
+}
+
+/* =========================
+   HTTP SERVER
+   ========================= */
+
+const server = http.createServer(async (req, res) => {
+  try {
+    // CORS preflight
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsHeaders());
+      return res.end();
+    }
+
+    const url = new URL(req.url || "/", "http://localhost");
+
+    // Solo protegemos endpoints /moodle/*
+    if (url.pathname.startsWith("/moodle/")) {
+      // Seguridad opcional: x-api-key
+      if (EVAL_API_KEY) {
+        const apiKey = req.headers["x-api-key"];
+        if (apiKey !== EVAL_API_KEY) {
+          return json(res, 401, { ok: false, error: "Unauthorized (x-api-key)" });
+        }
+      }
+
+      // Health
+      if (req.method === "GET" && url.pathname === "/moodle/health") {
+        return json(res, 200, { ok: true, service: "moodle-bridge" });
+      }
+
+      // Buscar assignId por nombre en un curso
+      if (req.method === "GET" && url.pathname === "/moodle/assign-id") {
+        const courseId = url.searchParams.get("courseId");
+        const name = url.searchParams.get("name");
+
+        if (!courseId || !name) {
+          return json(res, 400, { ok: false, error: "Faltan courseId o name" });
+        }
+
+        const target = normalizeName(name);
+
+        const data = await moodleCall("mod_assign_get_assignments", {
+          "courseids[0]": courseId,
+        });
+
+        const course = (data?.courses || []).find(
+          (c) => String(c.id) === String(courseId)
+        );
+
+        const assigns = course?.assignments || [];
+        const found = assigns.find((a) => normalizeName(a.name) === target);
+
+        if (!found) {
+          return json(res, 404, {
+            ok: false,
+            error: "No encontré esa tarea en el curso",
+            searched: name,
+            courseId,
+            available: assigns.map((a) => ({ id: a.id, name: a.name })),
+          });
+        }
+
+        return json(res, 200, { ok: true, assignId: found.id, name: found.name });
+      }
+
+      // Guardar nota + feedback (boletín)
+      if (req.method === "POST" && url.pathname === "/moodle/grade") {
+        const body = await readJsonBody(req);
+
+        const assignId = body.assignId;
+        const parentEmail = body.parentEmail;
+        const grade = body.grade; // 1..5
+        const feedback = body.feedback || "";
+
+        if (!assignId || !parentEmail || grade == null) {
+          return json(res, 400, {
+            ok: false,
+            error: "Faltan assignId, parentEmail o grade",
+          });
+        }
+
+        // Buscar user por email
+        const users = await moodleCall("core_user_get_users_by_field", {
+          field: "email",
+          "values[0]": parentEmail,
+        });
+
+        if (!Array.isArray(users) || users.length === 0) {
+          return json(res, 404, {
+            ok: false,
+            error: "No existe ese email en Moodle",
+            parentEmail,
+          });
+        }
+
+        const userId = users[0].id;
+
+        // Guardar calificación + comentario
+        const result = await moodleCall("mod_assign_save_grade", {
+          assignmentid: assignId,
+          userid: userId,
+          grade: grade,
+          attemptnumber: -1,
+          addattempt: 0,
+          "plugindata[assignfeedbackcomments_editor][text]": feedback,
+          "plugindata[assignfeedbackcomments_editor][format]": 0,
+        });
+
+        return json(res, 200, { ok: true, result, assignId, userId });
+      }
+
+      // Endpoint no encontrado
+      return json(res, 404, { ok: false, error: "Not found" });
+    }
+
+    // Respuesta simple para el root (útil para verificar que está vivo)
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("OK");
+  } catch (e) {
+    return json(res, 500, { ok: false, error: e.message });
+  }
+});
+
+/* =========================
+   GEMINI LIVE (WS)
+   ========================= */
+
 const wss = new WebSocketServer({ server });
 
 const ai = new GoogleGenAI({
@@ -14,7 +219,8 @@ const ai = new GoogleGenAI({
 
 function fallbackItemsForTopic(topic) {
   if (topic === "Frases de la semana") return ["Good morning"];
-  if (topic === "Práctica de vocabulario de My Book") return ["Yellow", "Red", "Blue", "Green"];
+  if (topic === "Práctica de vocabulario de My Book")
+    return ["Yellow", "Red", "Blue", "Green"];
   return ["Good morning"];
 }
 
@@ -86,8 +292,7 @@ function detectFinalClosing(text) {
 
 /**
  * 🔥 MAPA DE SCOPES POR PIN (backend)
- * Hoy piloto: 304726 => CO / J1 (Miska Muska)
- * Mañana: agregás más pins aquí y listo (LATAM escalable).
+ * Hoy piloto: PIN_DOCENTE => CO / J1 (Miska Muska)
  */
 function scopeForPin(pin) {
   if (pin === String(process.env.PIN_DOCENTE || "")) {
@@ -173,7 +378,8 @@ wss.on("connection", (ws) => {
             try {
               if (msg.setupComplete) {
                 ready = true;
-                if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "readyForUser" }));
+                if (ws.readyState === ws.OPEN)
+                  ws.send(JSON.stringify({ type: "readyForUser" }));
                 sendInitialInstructionIfReady();
                 return;
               }
@@ -199,7 +405,8 @@ wss.on("connection", (ws) => {
                   return;
                 }
                 transcriptBuffer = "";
-                if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "turnComplete" }));
+                if (ws.readyState === ws.OPEN)
+                  ws.send(JSON.stringify({ type: "turnComplete" }));
               }
             } catch (err) {
               console.error("❌ ERROR MENSAJE:", err);
@@ -214,7 +421,8 @@ wss.on("connection", (ws) => {
 
           onerror: (err) => {
             console.error("🔴 ERROR GEMINI:", err);
-            if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "error", message: "error gemini" }));
+            if (ws.readyState === ws.OPEN)
+              ws.send(JSON.stringify({ type: "error", message: "error gemini" }));
           },
         },
       })
@@ -227,7 +435,8 @@ wss.on("connection", (ws) => {
       })
       .catch((err) => {
         console.error("❌ ERROR INICIANDO:", err);
-        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: "error", message: "no se pudo iniciar gemini" }));
+        if (ws.readyState === ws.OPEN)
+          ws.send(JSON.stringify({ type: "error", message: "no se pudo iniciar gemini" }));
       });
   }
 
@@ -250,7 +459,10 @@ wss.on("connection", (ws) => {
       // ✅ SESIÓN VOZ
       if (msg.type === "startSession") {
         topic = msg.topic || "Frases de la semana";
-        items = Array.isArray(msg.items) && msg.items.length > 0 ? msg.items : fallbackItemsForTopic(topic);
+        items =
+          Array.isArray(msg.items) && msg.items.length > 0
+            ? msg.items
+            : fallbackItemsForTopic(topic);
         startGeminiSession();
         return;
       }
@@ -269,6 +481,8 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    console.log("🔴 CLIENT CLOSED");
+
     if (keepAliveInterval) clearInterval(keepAliveInterval);
 
     if (session && !googleClosed) {
