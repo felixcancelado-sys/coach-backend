@@ -1,6 +1,9 @@
 import http from "http";
 import { WebSocketServer } from "ws";
 import { GoogleGenAI, Modality } from "@google/genai";
+import pg from "pg";
+
+const { Pool } = pg;
 
 const PORT = process.env.PORT || 8080;
 
@@ -9,12 +12,85 @@ const PORT = process.env.PORT || 8080;
    ========================= */
 
 const MOODLE_BASE_URL = process.env.MOODLE_BASE_URL; // ej: https://myteam.tizapp.fun
-const MOODLE_WSTOKEN = process.env.MOODLE_WSTOKEN;   // token MTBP_EVAL
-const EVAL_API_KEY = process.env.EVAL_API_KEY;       // opcional
+const MOODLE_WSTOKEN = process.env.MOODLE_WSTOKEN; // token MTBP_EVAL
+const EVAL_API_KEY = process.env.EVAL_API_KEY; // opcional
+const DATABASE_URL = process.env.DATABASE_URL;
 
-// Boletines visuales guardados en memoria.
-// Para producción grande luego conviene mover esto a DB.
-const REPORT_CARDS = new Map();
+/* =========================
+   POSTGRES / REPORT CARDS
+   ========================= */
+
+const pool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+    })
+  : null;
+
+// Respaldo temporal si DATABASE_URL no existe.
+// En Railway producción debe usarse Postgres.
+const MEMORY_REPORT_CARDS = new Map();
+
+async function initReportCardsTable() {
+  if (!pool) {
+    console.warn("⚠️ DATABASE_URL no existe. Usando memoria temporal para report cards.");
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS report_cards (
+      report_id TEXT PRIMARY KEY,
+      report JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  console.log("✅ report_cards table ready");
+}
+
+async function saveReportCard(reportId, report) {
+  const savedReport = {
+    ...report,
+    reportId,
+    updatedAtISO: new Date().toISOString(),
+  };
+
+  if (!pool) {
+    MEMORY_REPORT_CARDS.set(reportId, savedReport);
+    return savedReport;
+  }
+
+  await pool.query(
+    `
+    INSERT INTO report_cards (report_id, report, created_at, updated_at)
+    VALUES ($1, $2::jsonb, NOW(), NOW())
+    ON CONFLICT (report_id)
+    DO UPDATE SET
+      report = EXCLUDED.report,
+      updated_at = NOW();
+    `,
+    [reportId, JSON.stringify(savedReport)]
+  );
+
+  return savedReport;
+}
+
+async function getReportCard(reportId) {
+  if (!pool) {
+    return MEMORY_REPORT_CARDS.get(reportId) || null;
+  }
+
+  const result = await pool.query(
+    `SELECT report FROM report_cards WHERE report_id = $1 LIMIT 1;`,
+    [reportId]
+  );
+
+  return result.rows[0]?.report || null;
+}
+
+/* =========================
+   HELPERS
+   ========================= */
 
 function corsHeaders() {
   return {
@@ -100,7 +176,6 @@ async function moodleCall(wsfunction, paramsObj) {
 
 const server = http.createServer(async (req, res) => {
   try {
-    // CORS preflight
     if (req.method === "OPTIONS") {
       res.writeHead(204, corsHeaders());
       return res.end();
@@ -124,7 +199,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const report = REPORT_CARDS.get(reportId);
+      const report = await getReportCard(reportId);
 
       if (!report) {
         return json(res, 404, {
@@ -153,24 +228,21 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const savedReport = {
-        ...report,
-        reportId,
-        updatedAtISO: new Date().toISOString(),
-      };
-
-      REPORT_CARDS.set(reportId, savedReport);
+      const savedReport = await saveReportCard(reportId, report);
 
       return json(res, 200, {
         ok: true,
         reportId,
         report: savedReport,
+        storage: pool ? "postgres" : "memory",
       });
     }
 
-    // Solo protegemos endpoints /moodle/*
+    /* =========================
+       MOODLE ENDPOINTS
+       ========================= */
+
     if (url.pathname.startsWith("/moodle/")) {
-      // Seguridad opcional: x-api-key
       if (EVAL_API_KEY) {
         const apiKey = req.headers["x-api-key"];
         if (apiKey !== EVAL_API_KEY) {
@@ -181,15 +253,14 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      // Health
       if (req.method === "GET" && url.pathname === "/moodle/health") {
         return json(res, 200, {
           ok: true,
           service: "moodle-bridge",
+          database: pool ? "postgres" : "memory",
         });
       }
 
-      // Buscar assignId por nombre en un curso
       if (req.method === "GET" && url.pathname === "/moodle/assign-id") {
         const courseId = url.searchParams.get("courseId");
         const name = url.searchParams.get("name");
@@ -234,7 +305,6 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      // Guardar nota + feedback en Moodle
       if (req.method === "POST" && url.pathname === "/moodle/grade") {
         const body = await readJsonBody(req);
 
@@ -250,7 +320,6 @@ const server = http.createServer(async (req, res) => {
           });
         }
 
-        // Buscar user por email
         const users = await moodleCall("core_user_get_users_by_field", {
           field: "email",
           "values[0]": parentEmail,
@@ -266,7 +335,6 @@ const server = http.createServer(async (req, res) => {
 
         const userId = users[0].id;
 
-        // Guardar calificación + comentario
         const result = await moodleCall("mod_assign_save_grade", {
           assignmentid: assignId,
           userid: userId,
@@ -291,13 +359,13 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // Respuesta simple para root
     res.writeHead(200, {
       "Content-Type": "text/plain; charset=utf-8",
       ...corsHeaders(),
     });
     res.end("OK");
   } catch (e) {
+    console.error("HTTP ERROR:", e);
     return json(res, 500, {
       ok: false,
       error: e.message,
@@ -554,6 +622,12 @@ function scopeForPin(pin) {
 
   return null;
 }
+
+/* =========================
+   START SERVER
+   ========================= */
+
+await initReportCardsTable();
 
 server.listen(PORT, () => {
   console.log(`backend ready on port ${PORT}`);
