@@ -336,14 +336,17 @@ const server = http.createServer(async (req, res) => {
         const userId = users[0].id;
 
         const result = await moodleCall("mod_assign_save_grade", {
-          assignmentid: assignId,
-          userid: userId,
-          grade: grade,
-          attemptnumber: -1,
-          addattempt: 0,
-          "plugindata[assignfeedbackcomments_editor][text]": feedback,
-          "plugindata[assignfeedbackcomments_editor][format]": 0,
-        });
+  assignmentid: assignId,
+  userid: userId,
+  grade: grade,
+  attemptnumber: -1,
+  addattempt: 0,
+  workflowstate: "graded",
+  applytoall: 0,
+  sendstudentnotifications: 0,
+  "plugindata[assignfeedbackcomments_editor][text]": feedback,
+  "plugindata[assignfeedbackcomments_editor][format]": 0,
+});
 
         return json(res, 200, {
           ok: true,
