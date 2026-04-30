@@ -8,7 +8,7 @@ const { Pool } = pg;
 const PORT = process.env.PORT || 8080;
 
 /* =========================
-   MOODLE REST (Railway)
+   PLATAFORMA MTBP REST (Railway)
    ========================= */
 
 const MOODLE_BASE_URL = process.env.MOODLE_BASE_URL; // ej: https://myteam.tizapp.fun
@@ -164,7 +164,7 @@ async function moodleCall(wsfunction, paramsObj) {
   const data = await r.json();
 
   if (data && data.exception) {
-    throw new Error(`${data.exception}: ${data.message || "Error Moodle WS"}`);
+    throw new Error(`${data.exception}: ${data.message || "Error Plataforma MTBP WS"}`);
   }
 
   return data;
@@ -239,7 +239,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* =========================
-       MOODLE ENDPOINTS
+       PLATAFORMA MTBP ENDPOINTS
        ========================= */
 
     if (url.pathname.startsWith("/moodle/")) {
@@ -328,7 +328,7 @@ const server = http.createServer(async (req, res) => {
         if (!Array.isArray(users) || users.length === 0) {
           return json(res, 404, {
             ok: false,
-            error: "No existe ese email en Moodle",
+            error: "No existe ese email en Plataforma MTBP",
             parentEmail,
           });
         }
@@ -336,17 +336,17 @@ const server = http.createServer(async (req, res) => {
         const userId = users[0].id;
 
         const result = await moodleCall("mod_assign_save_grade", {
-  assignmentid: assignId,
-  userid: userId,
-  grade: grade,
-  attemptnumber: -1,
-  addattempt: 0,
-  workflowstate: "graded",
-  applytoall: 0,
-  sendstudentnotifications: 0,
-  "plugindata[assignfeedbackcomments_editor][text]": feedback,
-  "plugindata[assignfeedbackcomments_editor][format]": 0,
-});
+          assignmentid: assignId,
+          userid: userId,
+          grade: grade,
+          attemptnumber: -1,
+          addattempt: 0,
+          workflowstate: "graded",
+          applytoall: 0,
+          sendstudentnotifications: 0,
+          "plugindata[assignfeedbackcomments_editor][text]": feedback,
+          "plugindata[assignfeedbackcomments_editor][format]": 0,
+        });
 
         return json(res, 200, {
           ok: true,
@@ -431,7 +431,9 @@ Pista: "Saca aire suave: hhh."
 
 3) La R inglesa NO es como la R del español
 - No vibra, no golpea el paladar.
-Ejemplos: red, right, car, teacher
+- NO aceptes R fuerte, vibrada o rodada del español.
+- NO aceptes pronunciaciones como "rrred" para la palabra "red".
+Ejemplos: red, right, room, run, car, teacher
 Pista: "R suave hacia atrás, sin vibrar."
 
 4) V y B no son iguales
@@ -441,24 +443,48 @@ Pista: "V con dientes y labio; B con dos labios."
 Ejemplo clave: berry ≠ very
 
 REGLAS CLAVE EXTRA (SIEMPRE)
+
 S INICIAL (muy importante)
 - Si una palabra empieza con S, NO se pronuncia "es".
   Ej: school ≠ "eschool", square ≠ "esquare", stop ≠ "estop".
 Pista corta:
 - "Sin 'e' al inicio. Empieza directo con S."
 
-R INGLESA (refuerzo)
-- NO vibra (no RRR), NO golpea el paladar.
-- La lengua va hacia atrás, sin tocar fuerte.
-Ej: red, right, car, teacher.
+R INGLESA (refuerzo estricto)
+- NO vibra.
+- NO se rueda.
+- NO debe sonar como R fuerte del español.
+- NO aceptes "rrred" como correcto para "red".
+- La lengua va hacia atrás, sin tocar fuerte el paladar.
+Ej: red, right, room, run, car, teacher.
 Pista corta:
 - "R suave hacia atrás, sin vibrar."
 
 Y al inicio (ej: Yellow)
-- La Y inicial suele sonar como una “i” suave /y/ (no “ye” español marcado).
-Ej: yellow.
+- La Y inicial debe sonar suave, parecida a una “i” corta al inicio.
+- NO aceptes una Y fuerte tipo español, LL, J o "ye" marcada.
+- NO aceptes pronunciaciones como "jellow", "llellow", "djellow" o una Y demasiado fuerte.
+Ej: yellow, yes, you.
 Pista corta:
-- "La Y suena como 'i' suave: y-ellow."
+- "La Y es suave, como en yes: yellow."
+
+REGLA ESTRICTA PARA R Y Y INICIALES
+- En palabras que empiezan con R, como red, right, room, run:
+  - NO aceptes una R fuerte, vibrada o rodada del español.
+  - NO aceptes "rrred" como correcto.
+  - La R inglesa debe sonar suave, sin vibrar y sin golpear el paladar.
+  - Si el estudiante dice una R española fuerte, corrige y repite el mismo ítem.
+  - Corrección sugerida: "Casi, pero la R en inglés es suave. Escucha: red."
+
+- En palabras que empiezan con Y, como yellow, yes, you:
+  - NO aceptes una Y fuerte tipo español, LL, J o "ye" marcada.
+  - NO aceptes pronunciaciones como "jellow", "llellow", "djellow" o una Y demasiado fuerte.
+  - La Y inicial debe sonar suave, parecida a una "i" corta al inicio.
+  - Si el estudiante pronuncia mal la Y inicial, corrige y repite el mismo ítem.
+  - Corrección sugerida: "Casi, pero la Y es suave, como en yes. Escucha: yellow."
+
+- Prohibido decir "Muy bien", "Perfecto", "Excelente" o "Bien, sigamos" si hay error claro en R inicial o Y inicial.
+- En esos casos usa una corrección amable y repite el ítem.
 
 G (verificar pronunciación)
 - No cambiarla por J ni suavizarla de más.
@@ -544,6 +570,7 @@ cats / dogs / buses
 worked / played / wanted
 yellow / yes
 green / go / garage
+red / right / room / run
 `;
 
   return `
@@ -558,7 +585,9 @@ REGLAS GENERALES:
 - Trabajas UN ítem por vez.
 - No cambias de tema.
 - No agregas palabras o frases fuera de la lista.
-Prestar especial atencion a la pronunciación "r", "y".
+- Presta especial atención a la pronunciación de la R inicial y la Y inicial.
+- No felicites ni marques como correcto un ítem si el estudiante comete un error claro en el sonido inicial de la palabra.
+- Si hay duda razonable sobre la pronunciación, trátalo como incorrecto, corrige con cariño y repite el mismo ítem.
 - Si el estudiante pregunta otra cosa, responde: "En este training practicamos solo estas palabras" y vuelve al ítem actual.
 
 TONO (OBLIGATORIO):
@@ -590,6 +619,13 @@ RESPUESTAS (variadas, no repetitivas):
   - "Perfecto."
   - "Excelente."
   - "Bien, sigamos."
+
+REGLA DE CONTROL ANTES DE FELICITAR:
+- Antes de decir "Muy bien", "Perfecto", "Excelente" o "Bien, sigamos", verifica que la pronunciación sea razonablemente cercana al inglés.
+- Si la palabra empieza con R o Y, revisa especialmente el sonido inicial.
+- Si la R suena rodada, fuerte o como "RRR" del español, NO está bien.
+- Si la Y suena como J, LL, DJ o demasiado marcada en español, NO está bien.
+- Si hay error claro de R o Y inicial, corrige con cariño y repite el mismo ítem.
 
 ${PRON_LIBRARY}
 
