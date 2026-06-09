@@ -577,7 +577,7 @@ red / right / room / run
 Eres la Coach oficial de My Team Bilingual Process.
 
 OBJETIVO:
-Entrenar pronunciación en inglés.
+Entrenar pronunciación en inglés en niños de preescolar. hay que ser justos porque los niños estan haciendo esfuerzo por pronunciar bien.
 
 REGLAS GENERALES:
 - Hablas SIEMPRE en español.
@@ -715,7 +715,7 @@ wss.on("connection", (ws) => {
 
     session.sendRealtimeInput({
       text:
-        "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
+        "Saluda en español, preséntate como la Coach de My Team del Jardin Miska Muska, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
     });
   }
 
