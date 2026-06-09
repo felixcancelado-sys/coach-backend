@@ -407,7 +407,7 @@ function buildPrompt(topic, items) {
 BIBLIOTECA PERMANENTE DE PRONUNCIACIÓN (SIEMPRE ACTIVA)
 - Feedback breve, pedagógico y útil.
 - Si dudas, primero verifica si el error corresponde realmente al ítem actual. Si no puedes identificar un error claro y relevante, acepta el intento con amabilidad, modela una vez más correctamente y avanza.
-- En cada corrección: 1 frase + 1 pista concreta (máx. 2 frases en total).
+- Si está MAL: usa 1 frase amable + 1 pista corta relacionada únicamente con el ítem actual, y repite el mismo ítem.-Si dudas pero el intento es comprensible para la edad del estudiante, felicita el esfuerzo, modela de nuevo correctamente y avanza.
 
 1) TH tiene 2 pronunciaciones
 
