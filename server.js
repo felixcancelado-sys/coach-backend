@@ -725,7 +725,7 @@ wss.on("connection", (ws) => {
 
     session.sendRealtimeInput({
       text:
-        "Saluda en español, preséntate como la Coach de My Team del Jardin Miska Muska, pregunta el nombre del estudiante, espera su respuesta y luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
+        "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante Y espera su respuesta, luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
     });
   }
 
