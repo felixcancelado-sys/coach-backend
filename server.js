@@ -434,6 +434,7 @@ wss.on("connection", (ws) => {
   let pendingCloseAfterTurn = false;
   let closeTriggered = false;
   let keepAliveInterval = null;
+  let closeFallbackTimer = null;
   let googleClosed = false;
   let initialInstructionSent = false;
 
@@ -442,6 +443,11 @@ wss.on("connection", (ws) => {
 
     closeTriggered = true;
     pendingCloseAfterTurn = false;
+
+    if (closeFallbackTimer) {
+      clearTimeout(closeFallbackTimer);
+      closeFallbackTimer = null;
+    }
 
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: "sessionEnded" }));
@@ -473,6 +479,11 @@ wss.on("connection", (ws) => {
     transcriptBuffer = "";
     pendingCloseAfterTurn = false;
     closeTriggered = false;
+
+    if (closeFallbackTimer) {
+      clearTimeout(closeFallbackTimer);
+      closeFallbackTimer = null;
+    }
     googleClosed = false;
     initialInstructionSent = false;
 
@@ -512,6 +523,14 @@ wss.on("connection", (ws) => {
 
                 if (detectFinalClosing(transcriptBuffer)) {
                   pendingCloseAfterTurn = true;
+
+                  if (!closeFallbackTimer) {
+                    closeFallbackTimer = setTimeout(() => {
+                      if (pendingCloseAfterTurn && !closeTriggered) {
+                        triggerSessionEnd();
+                      }
+                    }, 6500);
+                  }
                 }
               }
 
@@ -651,6 +670,11 @@ wss.on("connection", (ws) => {
 
     if (keepAliveInterval) {
       clearInterval(keepAliveInterval);
+    }
+
+    if (closeFallbackTimer) {
+      clearTimeout(closeFallbackTimer);
+      closeFallbackTimer = null;
     }
 
     if (session && !googleClosed) {
