@@ -120,8 +120,16 @@ function normalizeName(s) {
 }
 
 function detectFinalClosing(text) {
-  const t = normalizeName(text);
-  return t.includes("well done and see you in the next training");
+  const t = normalizeName(text)
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return (
+    t.includes("well done and see you in the next training") ||
+    (t.includes("well done") && t.includes("see you in the next training")) ||
+    t.includes("see you in the next training")
+  );
 }
 
 async function readJsonBody(req) {
