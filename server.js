@@ -516,7 +516,9 @@ wss.on("connection", (ws) => {
                 return;
               }
 
-              const transcriptChunk = msg.outputTranscription?.text;
+              const transcriptChunk =
+                msg.serverContent?.outputTranscription?.text ||
+                msg.outputTranscription?.text;
 
               if (typeof transcriptChunk === "string" && transcriptChunk.trim()) {
                 transcriptBuffer += " " + transcriptChunk.trim();
