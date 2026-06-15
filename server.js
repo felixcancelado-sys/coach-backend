@@ -179,6 +179,122 @@ async function moodleCall(wsfunction, paramsObj) {
   return data;
 }
 
+
+function normalizeFamilyPin(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^A-Za-z0-9]/g, "");
+}
+
+async function validateMyBookFamilyPin(rawPin) {
+  if (!pool) {
+    return {
+      allowed: false,
+      reason: "DATABASE_NOT_CONFIGURED",
+    };
+  }
+
+  const pin = normalizeFamilyPin(rawPin);
+
+  if (!pin) {
+    return {
+      allowed: false,
+      reason: "INVALID_PIN",
+    };
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        fac."id" AS "familyAccessCodeId",
+        fac."studentId",
+        fac."guardianEmail",
+        fac."guardianName",
+        fac."isActive" AS "familyCodeIsActive",
+        s."firstName",
+        s."lastName",
+        s."displayName",
+        s."isActive" AS "studentIsActive",
+        i."id" AS "institutionId",
+        i."name" AS "institutionName",
+        i."slug" AS "institutionSlug",
+        g."id" AS "gradeId",
+        g."name" AS "gradeName",
+        g."slug" AS "gradeSlug"
+      FROM "family_access_codes" fac
+      JOIN "students" s ON s."id" = fac."studentId"
+      JOIN "institutions" i ON i."id" = s."institutionId"
+      JOIN "grades" g ON g."id" = s."gradeId"
+      WHERE regexp_replace(fac."code", '[^A-Za-z0-9]', '', 'g') = $1
+      LIMIT 1
+    `,
+    [pin]
+  );
+
+  const row = result.rows[0];
+
+  if (!row) {
+    return {
+      allowed: false,
+      reason: "INVALID_PIN",
+    };
+  }
+
+  if (!row.familyCodeIsActive) {
+    return {
+      allowed: false,
+      reason: "FAMILY_CODE_INACTIVE",
+    };
+  }
+
+  if (!row.studentIsActive) {
+    return {
+      allowed: false,
+      reason: "STUDENT_INACTIVE",
+    };
+  }
+
+  await pool.query(
+    `
+      UPDATE "family_access_codes"
+      SET "lastUsedAt" = NOW(),
+          "updatedAt" = NOW()
+      WHERE "id" = $1
+    `,
+    [row.familyAccessCodeId]
+  );
+
+  return {
+    allowed: true,
+    source: "MYBOOK_2026",
+    student: {
+      id: row.studentId,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      displayName: row.displayName,
+    },
+    guardian: {
+      email: row.guardianEmail,
+      name: row.guardianName,
+    },
+    institution: {
+      id: row.institutionId,
+      name: row.institutionName,
+      slug: row.institutionSlug,
+    },
+    grade: {
+      id: row.gradeId,
+      name: row.gradeName,
+      slug: row.gradeSlug,
+    },
+    access: {
+      dailyLimit: 3,
+      sessionsUsedToday: 0,
+      sessionsRemainingToday: 3,
+    },
+  };
+}
+
 /* =========================
    HTTP SERVER
    ========================= */
@@ -191,6 +307,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     const url = new URL(req.url || "/", "http://localhost");
+
+    /* =========================
+       COACH ACCESS / MY BOOK PIN
+       ========================= */
+
+    if (req.method === "POST" && url.pathname === "/coach/access/validate-pin") {
+      const body = await readJsonBody(req);
+      const result = await validateMyBookFamilyPin(body.pin || body.code);
+
+      return json(res, 200, result);
+    }
 
     /* =========================
        REPORT CARDS / BOLETINES
