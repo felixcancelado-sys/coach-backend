@@ -17,6 +17,7 @@ const MOODLE_BASE_URL = process.env.MOODLE_BASE_URL; // ej: https://myteam.tizap
 const MOODLE_WSTOKEN = process.env.MOODLE_WSTOKEN; // token MTBP_EVAL
 const EVAL_API_KEY = process.env.EVAL_API_KEY; // opcional
 const DATABASE_URL = process.env.DATABASE_URL;
+const COACH_PROGRESS_KEY = process.env.COACH_PROGRESS_KEY;
 
 /* =========================
    POSTGRES / REPORT CARDS
@@ -556,6 +557,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/coach/progress/summary") {
+      if (COACH_PROGRESS_KEY) {
+        const providedKey =
+          url.searchParams.get("key") || req.headers["x-coach-progress-key"];
+
+        if (providedKey !== COACH_PROGRESS_KEY) {
+          return json(res, 403, {
+            ok: false,
+            error: "FORBIDDEN",
+          });
+        }
+      }
+
       const result = await getCoachProgressSummary();
 
       return json(res, result.ok ? 200 : 500, result);
