@@ -1,4 +1,5 @@
 ﻿import http from "http";
+import crypto from "crypto";
 import { WebSocketServer } from "ws";
 import { GoogleGenAI, Modality } from "@google/genai";
 import pg from "pg";
@@ -47,6 +48,46 @@ async function initReportCardsTable() {
   `);
 
   console.log("✅ report_cards table ready");
+}
+
+
+async function initCoachAccessLogsTable() {
+  if (!pool) {
+    console.warn("?? DATABASE_URL no existe. No se crear?n logs de Coach.");
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coach_access_logs (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL DEFAULT 'MYBOOK_2026',
+      allowed BOOLEAN NOT NULL DEFAULT FALSE,
+      reason TEXT,
+      pin_hash TEXT,
+      student_id TEXT,
+      student_display_name TEXT,
+      guardian_email TEXT,
+      guardian_name TEXT,
+      institution_id TEXT,
+      institution_name TEXT,
+      institution_slug TEXT,
+      grade_id TEXT,
+      grade_name TEXT,
+      grade_slug TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_coach_access_logs_student_created
+      ON coach_access_logs (student_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_coach_access_logs_allowed_created
+      ON coach_access_logs (allowed, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_coach_access_logs_institution_grade
+      ON coach_access_logs (institution_id, grade_id);
+  `);
+
+  console.log("? coach_access_logs table ready");
 }
 
 async function saveReportCard(reportId, report) {
@@ -186,6 +227,191 @@ function normalizeFamilyPin(value) {
     .replace(/[^A-Za-z0-9]/g, "");
 }
 
+
+function hashFamilyPin(pin) {
+  return crypto.createHash("sha256").update(String(pin || "")).digest("hex");
+}
+
+async function logCoachAccessAttempt({ pin, allowed, reason, row }) {
+  if (!pool) return;
+
+  await pool.query(
+    `
+      INSERT INTO coach_access_logs (
+        id,
+        source,
+        allowed,
+        reason,
+        pin_hash,
+        student_id,
+        student_display_name,
+        guardian_email,
+        guardian_name,
+        institution_id,
+        institution_name,
+        institution_slug,
+        grade_id,
+        grade_name,
+        grade_slug,
+        created_at
+      )
+      VALUES (
+        $1, 'MYBOOK_2026', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()
+      )
+    `,
+    [
+      crypto.randomUUID(),
+      Boolean(allowed),
+      reason || null,
+      pin ? hashFamilyPin(pin) : null,
+      row?.studentId || null,
+      row?.displayName || null,
+      row?.guardianEmail || null,
+      row?.guardianName || null,
+      row?.institutionId || null,
+      row?.institutionName || null,
+      row?.institutionSlug || null,
+      row?.gradeId || null,
+      row?.gradeName || null,
+      row?.gradeSlug || null,
+    ]
+  );
+}
+
+async function coachSessionsUsedToday(studentId) {
+  if (!pool || !studentId) return 0;
+
+  const result = await pool.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM coach_access_logs
+      WHERE allowed = TRUE
+        AND source = 'MYBOOK_2026'
+        AND student_id = $1
+        AND created_at >= date_trunc('day', NOW())
+    `,
+    [studentId]
+  );
+
+  return Number(result.rows[0]?.count || 0);
+}
+
+function maskEmail(email) {
+  const value = String(email || "");
+  const [name, domain] = value.split("@");
+
+  if (!name || !domain) return value ? "***" : "";
+
+  return `${name.slice(0, 2)}***@${domain}`;
+}
+
+async function getCoachProgressSummary() {
+  if (!pool) {
+    return {
+      ok: false,
+      reason: "DATABASE_NOT_CONFIGURED",
+    };
+  }
+
+  const result = await pool.query(`
+    WITH base AS (
+      SELECT
+        fac."studentId" AS student_id,
+        fac."guardianEmail" AS guardian_email,
+        fac."guardianName" AS guardian_name,
+        s."displayName" AS student_display_name,
+        s."firstName" AS first_name,
+        s."lastName" AS last_name,
+        i."id" AS institution_id,
+        i."name" AS institution_name,
+        i."slug" AS institution_slug,
+        g."id" AS grade_id,
+        g."name" AS grade_name,
+        g."slug" AS grade_slug
+      FROM "family_access_codes" fac
+      JOIN "students" s ON s."id" = fac."studentId"
+      JOIN "institutions" i ON i."id" = s."institutionId"
+      JOIN "grades" g ON g."id" = s."gradeId"
+      WHERE fac."isActive" = TRUE
+        AND s."isActive" = TRUE
+    ),
+    stats AS (
+      SELECT
+        student_id,
+        COUNT(*) FILTER (WHERE allowed = TRUE)::int AS total_accesses,
+        COUNT(*) FILTER (
+          WHERE allowed = TRUE
+            AND created_at >= date_trunc('day', NOW())
+        )::int AS sessions_today,
+        MAX(created_at) FILTER (WHERE allowed = TRUE) AS last_entry_at
+      FROM coach_access_logs
+      WHERE source = 'MYBOOK_2026'
+      GROUP BY student_id
+    ),
+    ranked AS (
+      SELECT
+        base.*,
+        COALESCE(stats.total_accesses, 0) AS total_accesses,
+        COALESCE(stats.sessions_today, 0) AS sessions_today,
+        stats.last_entry_at,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            COALESCE(stats.total_accesses, 0) DESC,
+            stats.last_entry_at DESC NULLS LAST,
+            base.student_display_name ASC
+        )::int AS usage_rank
+      FROM base
+      LEFT JOIN stats ON stats.student_id = base.student_id
+    )
+    SELECT *
+    FROM ranked
+    ORDER BY usage_rank ASC;
+  `);
+
+  const students = result.rows.map((row) => ({
+    studentId: row.student_id,
+    studentName: row.student_display_name || [row.first_name, row.last_name].filter(Boolean).join(" "),
+    guardianEmailMasked: maskEmail(row.guardian_email),
+    guardianName: row.guardian_name,
+    institution: {
+      id: row.institution_id,
+      name: row.institution_name,
+      slug: row.institution_slug,
+    },
+    grade: {
+      id: row.grade_id,
+      name: row.grade_name,
+      slug: row.grade_slug,
+    },
+    lastEntryAt: row.last_entry_at,
+    sessionsToday: Number(row.sessions_today || 0),
+    dailyLimit: 3,
+    completedDailySessions: Number(row.sessions_today || 0) >= 3,
+    totalAccesses: Number(row.total_accesses || 0),
+    usageRank: Number(row.usage_rank || 0),
+  }));
+
+  const lastEntryAt =
+    students
+      .map((student) => student.lastEntryAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) || null;
+
+  return {
+    ok: true,
+    source: "MYBOOK_2026",
+    generatedAt: new Date().toISOString(),
+    summary: {
+      totalStudents: students.length,
+      activeToday: students.filter((student) => student.sessionsToday > 0).length,
+      completedThreeSessionsToday: students.filter((student) => student.completedDailySessions).length,
+      lastEntryAt,
+    },
+    students,
+  };
+}
+
 async function validateMyBookFamilyPin(rawPin) {
   if (!pool) {
     return {
@@ -234,6 +460,8 @@ async function validateMyBookFamilyPin(rawPin) {
   const row = result.rows[0];
 
   if (!row) {
+    await logCoachAccessAttempt({ pin, allowed: false, reason: "INVALID_PIN" });
+
     return {
       allowed: false,
       reason: "INVALID_PIN",
@@ -241,6 +469,8 @@ async function validateMyBookFamilyPin(rawPin) {
   }
 
   if (!row.familyCodeIsActive) {
+    await logCoachAccessAttempt({ pin, allowed: false, reason: "FAMILY_CODE_INACTIVE", row });
+
     return {
       allowed: false,
       reason: "FAMILY_CODE_INACTIVE",
@@ -248,6 +478,8 @@ async function validateMyBookFamilyPin(rawPin) {
   }
 
   if (!row.studentIsActive) {
+    await logCoachAccessAttempt({ pin, allowed: false, reason: "STUDENT_INACTIVE", row });
+
     return {
       allowed: false,
       reason: "STUDENT_INACTIVE",
@@ -263,6 +495,9 @@ async function validateMyBookFamilyPin(rawPin) {
     `,
     [row.familyAccessCodeId]
   );
+
+  await logCoachAccessAttempt({ pin, allowed: true, reason: null, row });
+  const sessionsUsedToday = await coachSessionsUsedToday(row.studentId);
 
   return {
     allowed: true,
@@ -289,8 +524,9 @@ async function validateMyBookFamilyPin(rawPin) {
     },
     access: {
       dailyLimit: 3,
-      sessionsUsedToday: 0,
-      sessionsRemainingToday: 3,
+      sessionsUsedToday,
+      sessionsRemainingToday: Math.max(0, 3 - sessionsUsedToday),
+      completedDailySessions: sessionsUsedToday >= 3,
     },
   };
 }
@@ -317,6 +553,12 @@ const server = http.createServer(async (req, res) => {
       const result = await validateMyBookFamilyPin(body.pin || body.code);
 
       return json(res, 200, result);
+    }
+
+    if (req.method === "GET" && url.pathname === "/coach/progress/summary") {
+      const result = await getCoachProgressSummary();
+
+      return json(res, result.ok ? 200 : 500, result);
     }
 
     /* =========================
@@ -544,6 +786,7 @@ function scopeForPin(pin) {
    ========================= */
 
 await initReportCardsTable();
+await initCoachAccessLogsTable();
 
 server.listen(PORT, () => {
   console.log(`backend ready on port ${PORT}`);
