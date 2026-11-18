@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { WebSocketServer } from "ws";
 import { GoogleGenAI, Modality } from "@google/genai";
 import pg from "pg";
+import jwt from "jsonwebtoken";
 
 import { buildPrompt, fallbackItemsForTopic } from "./src/coach/coachPrompt.js";
 const { Pool } = pg;
@@ -544,6 +545,86 @@ const server = http.createServer(async (req, res) => {
     }
 
     const url = new URL(req.url || "/", "http://localhost");
+
+    /* =========================
+       TIZAPP SSO / MY COACH
+       ========================= */
+
+    if (req.method === "POST" && url.pathname === "/tizapp/sso") {
+      const launchSecret = process.env.TIZAPP_MODULE_LAUNCH_JWT_SECRET?.trim();
+
+      if (!launchSecret) {
+        return json(res, 500, {
+          ok: false,
+          message: "TizApp module launch is not configured.",
+        });
+      }
+
+      const body = await readJsonBody(req);
+      const launchToken = String(body?.launchToken ?? "").trim();
+
+      if (!launchToken) {
+        return json(res, 400, {
+          ok: false,
+          message: "Launch token is required.",
+        });
+      }
+
+      let payload;
+
+      try {
+        const decoded = jwt.verify(launchToken, launchSecret, {
+          issuer: "tizapp-enrollment-core",
+          audience: "my-team-coach",
+          algorithms: ["HS256"],
+        });
+
+        if (typeof decoded === "string") {
+          return json(res, 401, {
+            ok: false,
+            message: "Invalid launch token.",
+          });
+        }
+
+        payload = decoded;
+      } catch {
+        return json(res, 401, {
+          ok: false,
+          message: "Invalid or expired launch token.",
+        });
+      }
+
+      if (
+        !payload.studentId ||
+        payload.sub !== payload.studentId ||
+        payload.purpose !== "module-launch" ||
+        payload.module !== "MY_COACH" ||
+        payload.productCode !== "MY_TEAM_BP" ||
+        payload.role !== "student"
+      ) {
+        return json(res, 401, {
+          ok: false,
+          message: "Invalid launch context.",
+        });
+      }
+
+      return json(res, 200, {
+        ok: true,
+        student: {
+          id: payload.studentId,
+          firstName: payload.firstName || "",
+          lastName: payload.lastName || "",
+          displayName: [payload.firstName, payload.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim(),
+          role: payload.role,
+          institution: payload.institution || null,
+          grade: payload.grade || null,
+          academicYear: payload.academicYear || null,
+        },
+      });
+    }
 
     /* =========================
        COACH ACCESS / MY BOOK PIN

@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@google/genai": "latest",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.13.1",
     "ws": "latest"
   }
