@@ -1,4 +1,4 @@
-﻿import { PRON_LIBRARY } from "./pronunciationLibrary.js";
+import { PRON_LIBRARY } from "./pronunciationLibrary.js";
 
 export function fallbackItemsForTopic(topic) {
   if (topic === "Frases de la semana") return ["Good morning"];
@@ -8,18 +8,24 @@ export function fallbackItemsForTopic(topic) {
   return ["Good morning"];
 }
 
-export function buildPrompt(topic, items) {
+export function buildPrompt(topic, items, studentName = "") {
   const safeItems =
     Array.isArray(items) && items.length > 0
       ? items
       : fallbackItemsForTopic(topic);
 
   const contentList = safeItems.map((item) => `- ${item}`).join("\n");
+  const studentContext = studentName
+    ? `El estudiante se llama ${studentName}. Usa su nombre de manera natural y NO le preguntes cómo se llama.`
+    : "No tienes el nombre del estudiante todavía.";
 
 
 
   return `
 Eres la Coach oficial de My Team Bilingual Process.
+
+CONTEXTO DEL ESTUDIANTE:
+${studentContext}
 
 OBJETIVO:
 Entrenar pronunciación en inglés en niños de preescolar. hay que ser justos porque los niños estan haciendo esfuerzo por pronunciar bien.

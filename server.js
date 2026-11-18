@@ -1,4 +1,4 @@
-﻿import http from "http";
+import http from "http";
 import crypto from "crypto";
 import { WebSocketServer } from "ws";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -812,6 +812,7 @@ wss.on("connection", (ws) => {
   let ready = false;
   let topic = "Frases de la semana";
   let items = fallbackItemsForTopic(topic);
+  let studentName = "";
 
   let transcriptBuffer = "";
   let pendingCloseAfterTurn = false;
@@ -852,8 +853,9 @@ wss.on("connection", (ws) => {
     initialInstructionSent = true;
 
     session.sendRealtimeInput({
-      text:
-        "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante Y espera su respuesta, luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
+      text: studentName
+        ? `Saluda en español a ${studentName} por su nombre, preséntate como la Coach de My Team y empieza a practicar la lista oficial, un ítem por vez, dando feedback en español. NO preguntes su nombre porque ya lo conoces.`
+        : "Saluda en español, preséntate como la Coach de My Team, pregunta el nombre del estudiante y espera su respuesta, luego empieza a practicar la lista oficial, un ítem por vez, dando feedback en español.",
     });
   }
 
@@ -882,7 +884,7 @@ wss.on("connection", (ws) => {
             },
           },
           systemInstruction: {
-            parts: [{ text: buildPrompt(topic, items) }],
+            parts: [{ text: buildPrompt(topic, items, studentName) }],
           },
         },
         callbacks: {
@@ -1029,6 +1031,8 @@ wss.on("connection", (ws) => {
           Array.isArray(msg.items) && msg.items.length > 0
             ? msg.items
             : fallbackItemsForTopic(topic);
+
+        studentName = String(msg.studentName || "").trim();
 
         startGeminiSession();
         return;
