@@ -594,13 +594,18 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      const allowedRoles = [
+        "student",
+        "teacher",
+        "manager",
+        "big_admin",
+      ];
+
       if (
-        !payload.studentId ||
-        payload.sub !== payload.studentId ||
         payload.purpose !== "module-launch" ||
         payload.module !== "MY_COACH" ||
         payload.productCode !== "MY_TEAM_BP" ||
-        payload.role !== "student"
+        !allowedRoles.includes(payload.role)
       ) {
         return json(res, 401, {
           ok: false,
@@ -608,20 +613,56 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      if (payload.role === "student") {
+        if (
+          !payload.studentId ||
+          payload.sub !== payload.studentId
+        ) {
+          return json(res, 401, {
+            ok: false,
+            message: "Invalid student launch context.",
+          });
+        }
+
+        return json(res, 200, {
+          ok: true,
+          student: {
+            id: payload.studentId,
+            firstName: payload.firstName || "",
+            lastName: payload.lastName || "",
+            displayName: [payload.firstName, payload.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim(),
+            role: payload.role,
+            institution: payload.institution || null,
+            grade: payload.grade || null,
+            academicYear: payload.academicYear || null,
+          },
+        });
+      }
+
+      if (
+        !payload.staffAccountId ||
+        payload.sub !== payload.staffAccountId
+      ) {
+        return json(res, 401, {
+          ok: false,
+          message: "Invalid staff launch context.",
+        });
+      }
+
       return json(res, 200, {
         ok: true,
         student: {
-          id: payload.studentId,
-          firstName: payload.firstName || "",
-          lastName: payload.lastName || "",
-          displayName: [payload.firstName, payload.lastName]
-            .filter(Boolean)
-            .join(" ")
-            .trim(),
+          id: payload.staffAccountId,
+          firstName: payload.fullName || "",
+          lastName: "",
+          displayName: payload.fullName || "",
           role: payload.role,
           institution: payload.institution || null,
-          grade: payload.grade || null,
-          academicYear: payload.academicYear || null,
+          grade: null,
+          academicYear: null,
         },
       });
     }
